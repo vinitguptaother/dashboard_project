@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Brain, 
   TrendingUp, 
@@ -17,18 +17,22 @@ import {
   Clock,
   Star,
   Activity,
-  PieChart
+  PieChart,
+  Loader2
 } from 'lucide-react';
 
 const AIAnalysisTab = () => {
   const [activeSection, setActiveSection] = useState('overview');
   const [selectedTimeframe, setSelectedTimeframe] = useState('1D');
   const [selectedModel, setSelectedModel] = useState('ensemble');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const [aiInsights, setAiInsights] = useState({
     marketSentiment: {
       overall: 'Bullish',
       confidence: 78,
+      aiAnalysis: '', // Add this property
       factors: [
         { factor: 'Technical Indicators', sentiment: 'Bullish', weight: 35 },
         { factor: 'News Sentiment', sentiment: 'Neutral', weight: 25 },
@@ -98,11 +102,11 @@ const AIAnalysisTab = () => {
         action: 'HOLD',
         confidence: 72,
         aiScore: 7.2,
-        targetPrice: 1520,
-        currentPrice: 1420,
-        timeframe: '6-10 weeks',
-        reasoning: 'Mixed signals from AI models. Strong fundamentals but technical indicators show consolidation phase.',
-        riskFactors: ['US recession fears', 'Currency headwinds'],
+        targetPrice: 1580,
+        currentPrice: 1520,
+        timeframe: '3-6 weeks',
+        reasoning: 'Mixed signals from AI models. Strong fundamentals but technical resistance at current levels.',
+        riskFactors: ['IT spending slowdown', 'Currency fluctuations'],
         catalysts: ['Large deal wins', 'AI service offerings']
       }
     ],
@@ -112,21 +116,24 @@ const AIAnalysisTab = () => {
         stocks: ['ASIAN PAINTS', 'BAJAJ FINANCE'],
         confidence: 87,
         expectedMove: '+8-12%',
-        timeframe: '2-3 weeks'
+        timeframe: '2-3 weeks',
+        aiAnalysis: '' // Add this property
       },
       {
         pattern: 'Ascending Triangle',
         stocks: ['TATA STEEL', 'MARUTI SUZUKI'],
         confidence: 82,
         expectedMove: '+6-10%',
-        timeframe: '1-2 weeks'
+        timeframe: '1-2 weeks',
+        aiAnalysis: '' // Add this property
       },
       {
         pattern: 'Bull Flag',
         stocks: ['ICICI BANK', 'WIPRO'],
         confidence: 79,
         expectedMove: '+5-8%',
-        timeframe: '1-3 weeks'
+        timeframe: '1-3 weeks',
+        aiAnalysis: '' // Add this property
       }
     ],
     riskAnalysis: {
@@ -177,6 +184,93 @@ const AIAnalysisTab = () => {
     }
   ]);
 
+  // Function to get AI insights from Perplexity API
+  const getAIInsights = async (query: string) => {
+    try {
+      const response = await fetch('http://localhost:5001/api/perplexity/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: query })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      return data.choices?.[0]?.message?.content || data.answer || 'No response from AI';
+    } catch (error) {
+      console.error('Error fetching AI insights:', error);
+      throw error;
+    }
+  };
+
+  // Function to refresh AI analysis
+  const refreshAIAnalysis = async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Get market sentiment analysis
+      const sentimentQuery = `Analyze the current Indian stock market sentiment. Provide a brief analysis of market mood, key factors affecting sentiment, and overall market direction. Focus on NIFTY 50, BANK NIFTY, and SENSEX.`;
+      const sentimentAnalysis = await getAIInsights(sentimentQuery);
+      
+      // Get stock recommendations
+      const recommendationsQuery = `Provide 3 top stock recommendations for Indian markets (NSE) with current analysis. Include: symbol, action (BUY/HOLD/SELL), confidence %, target price, reasoning, and risk factors. Focus on large-cap stocks.`;
+      const stockRecommendations = await getAIInsights(recommendationsQuery);
+      
+      // Get technical analysis
+      const technicalQuery = `Identify 3 most promising technical chart patterns currently forming in Indian stocks. Include: pattern name, stocks showing this pattern, confidence %, expected move, and timeframe.`;
+      const technicalAnalysis = await getAIInsights(technicalQuery);
+      
+      // Update the state with AI-generated insights
+      setAiInsights(prev => ({
+        ...prev,
+        marketSentiment: {
+          ...prev.marketSentiment,
+          aiAnalysis: sentimentAnalysis
+        },
+        stockRecommendations: [
+          ...prev.stockRecommendations.slice(0, 1), // Keep first recommendation
+          {
+            symbol: 'AI GENERATED',
+            action: 'ANALYSIS',
+            confidence: 85,
+            aiScore: 8.5,
+            targetPrice: 0,
+            currentPrice: 0,
+            timeframe: 'Real-time',
+            reasoning: stockRecommendations,
+            riskFactors: ['AI-generated analysis'],
+            catalysts: ['Perplexity AI integration']
+          }
+        ],
+        patternRecognition: [
+          ...prev.patternRecognition.slice(0, 1), // Keep first pattern
+          {
+            pattern: 'AI ANALYSIS',
+            stocks: ['REAL-TIME DATA'],
+            confidence: 88,
+            expectedMove: 'AI Generated',
+            timeframe: 'Live',
+            aiAnalysis: technicalAnalysis
+          }
+        ]
+      }));
+      
+    } catch (error) {
+      setError('Failed to fetch AI insights. Please try again.');
+      console.error('Error refreshing AI analysis:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Auto-refresh on component mount
+  useEffect(() => {
+    refreshAIAnalysis();
+  }, []);
+
   const getSentimentColor = (sentiment: string) => {
     switch (sentiment.toLowerCase()) {
       case 'bullish': return 'text-green-600 bg-green-50';
@@ -198,6 +292,33 @@ const AIAnalysisTab = () => {
 
   const renderOverview = () => (
     <div className="space-y-6">
+      {/* Header with Refresh Button */}
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-semibold text-gray-900">AI Market Analysis</h2>
+        <button
+          onClick={refreshAIAnalysis}
+          disabled={isLoading}
+          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {isLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4" />
+          )}
+          <span>{isLoading ? 'Refreshing...' : 'Refresh Analysis'}</span>
+        </button>
+      </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="h-5 w-5 text-red-600" />
+            <p className="text-red-800">{error}</p>
+          </div>
+        </div>
+      )}
+
       {/* AI Performance Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="glass-effect rounded-lg p-4 text-center">
@@ -207,60 +328,63 @@ const AIAnalysisTab = () => {
         </div>
         <div className="glass-effect rounded-lg p-4 text-center">
           <Target className="h-8 w-8 text-green-600 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-gray-900">156</p>
-          <p className="text-sm text-gray-600">Predictions Today</p>
+          <p className="text-2xl font-bold text-gray-900">92.1%</p>
+          <p className="text-sm text-gray-600">Prediction Rate</p>
         </div>
         <div className="glass-effect rounded-lg p-4 text-center">
-          <CheckCircle className="h-8 w-8 text-blue-600 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-gray-900">73%</p>
-          <p className="text-sm text-gray-600">Success Rate</p>
+          <Activity className="h-8 w-8 text-blue-600 mx-auto mb-2" />
+          <p className="text-2xl font-bold text-gray-900">84.7%</p>
+          <p className="text-sm text-gray-600">Pattern Success</p>
         </div>
         <div className="glass-effect rounded-lg p-4 text-center">
-          <Activity className="h-8 w-8 text-yellow-600 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-gray-900">4</p>
-          <p className="text-sm text-gray-600">Active Models</p>
+          <Zap className="h-8 w-8 text-yellow-600 mx-auto mb-2" />
+          <p className="text-2xl font-bold text-gray-900">89.5%</p>
+          <p className="text-sm text-gray-600">Risk Accuracy</p>
         </div>
       </div>
 
-      {/* Market Sentiment Analysis */}
-      <div className="glass-effect rounded-xl p-6 shadow-lg">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-          <Brain className="h-5 w-5 mr-2 text-purple-600" />
-          AI Market Sentiment Analysis
-        </h3>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-sm font-medium text-gray-700">Overall Market Sentiment</span>
-              <span className={`px-3 py-1 rounded-full text-sm font-medium ${getSentimentColor(aiInsights.marketSentiment.overall)}`}>
-                {aiInsights.marketSentiment.overall}
-              </span>
-            </div>
-            <div className="mb-4">
-              <div className="flex justify-between text-sm mb-1">
-                <span>Confidence Level</span>
-                <span className="font-medium">{aiInsights.marketSentiment.confidence}%</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-purple-600 h-2 rounded-full" 
-                  style={{ width: `${aiInsights.marketSentiment.confidence}%` }}
-                ></div>
+      {/* Market Sentiment with AI Analysis */}
+      <div className="glass-effect rounded-lg p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">Market Sentiment</h3>
+          <div className={`px-3 py-1 rounded-full text-sm font-medium ${getSentimentColor(aiInsights.marketSentiment.overall)}`}>
+            {aiInsights.marketSentiment.overall}
+          </div>
+        </div>
+        
+        {/* AI-Generated Sentiment Analysis */}
+        {aiInsights.marketSentiment.aiAnalysis && (
+          <div className="mb-4 p-4 bg-blue-50 rounded-lg border-l-4 border-blue-400">
+            <div className="flex items-start space-x-2">
+              <Brain className="h-5 w-5 text-blue-600 mt-0.5" />
+              <div className="flex-1">
+                <h4 className="font-medium text-blue-900 mb-2">AI Analysis</h4>
+                <p className="text-blue-800 text-sm whitespace-pre-line">{aiInsights.marketSentiment.aiAnalysis}</p>
               </div>
             </div>
           </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <h4 className="font-medium text-gray-900 mb-3">Sentiment Factors</h4>
+            <p className="text-sm text-gray-600 mb-2">Confidence Level</p>
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div 
+                className="bg-green-600 h-2 rounded-full transition-all duration-300" 
+                style={{ width: `${aiInsights.marketSentiment.confidence}%` }}
+              ></div>
+            </div>
+            <p className="text-sm text-gray-600 mt-1">{aiInsights.marketSentiment.confidence}%</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-600 mb-2">Key Factors</p>
             <div className="space-y-2">
               {aiInsights.marketSentiment.factors.map((factor, index) => (
-                <div key={index} className="flex items-center justify-between">
+                <div key={index} className="flex justify-between items-center">
                   <span className="text-sm text-gray-700">{factor.factor}</span>
-                  <div className="flex items-center space-x-2">
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${getSentimentColor(factor.sentiment)}`}>
-                      {factor.sentiment}
-                    </span>
-                    <span className="text-xs text-gray-500">{factor.weight}%</span>
-                  </div>
+                  <span className={`text-xs px-2 py-1 rounded ${getSentimentColor(factor.sentiment)}`}>
+                    {factor.sentiment}
+                  </span>
                 </div>
               ))}
             </div>
@@ -268,42 +392,30 @@ const AIAnalysisTab = () => {
         </div>
       </div>
 
-      {/* AI Predictions */}
-      <div className="glass-effect rounded-xl p-6 shadow-lg">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-          <Target className="h-5 w-5 mr-2 text-green-600" />
-          AI Market Predictions
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Price Predictions */}
+      <div className="glass-effect rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Price Predictions</h3>
+        <div className="space-y-4">
           {aiInsights.predictions.map((prediction, index) => (
-            <div key={index} className="border border-gray-200 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="font-semibold text-gray-900">{prediction.symbol}</h4>
-                <span className={`flex items-center ${prediction.direction === 'up' ? 'text-green-600' : 'text-red-600'}`}>
-                  {prediction.direction === 'up' ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
-                </span>
+            <div key={index} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div className="flex-1">
+                <div className="flex items-center space-x-2">
+                  <h4 className="font-medium text-gray-900">{prediction.symbol}</h4>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    prediction.direction === 'up' ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'
+                  }`}>
+                    {prediction.direction === 'up' ? '↗' : '↘'} {prediction.probability}%
+                  </span>
+                </div>
+                <p className="text-sm text-gray-600 mt-1">
+                  Current: ₹{prediction.currentPrice.toLocaleString()} | 
+                  Target: ₹{prediction.predictedPrice.toLocaleString()} | 
+                  {prediction.timeframe}
+                </p>
               </div>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Current:</span>
-                  <span className="font-medium">₹{prediction.currentPrice.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Predicted:</span>
-                  <span className="font-medium text-blue-600">₹{prediction.predictedPrice.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Timeframe:</span>
-                  <span className="font-medium">{prediction.timeframe}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Confidence:</span>
-                  <span className="font-medium text-purple-600">{prediction.confidence}%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Probability:</span>
-                  <span className="font-medium">{prediction.probability}%</span>
-                </div>
+              <div className="text-right">
+                <p className="text-lg font-bold text-gray-900">{prediction.confidence}%</p>
+                <p className="text-xs text-gray-600">Confidence</p>
               </div>
             </div>
           ))}
@@ -316,29 +428,43 @@ const AIAnalysisTab = () => {
     <div className="space-y-6">
       <div className="glass-effect rounded-xl p-6 shadow-lg">
         <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-          <Star className="h-5 w-5 mr-2 text-yellow-600" />
+          <Target className="h-5 w-5 mr-2 text-green-600" />
           AI Stock Recommendations
         </h3>
-        <div className="space-y-4">
-          {aiInsights.stockRecommendations.map((rec, index) => (
-            <div key={index} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all">
+        
+        {/* AI-Generated Recommendations */}
+        {aiInsights.stockRecommendations.find(rec => rec.symbol === 'AI GENERATED') && (
+          <div className="mb-6 p-4 bg-blue-50 rounded-lg border-l-4 border-blue-400">
+            <div className="flex items-start space-x-2">
+              <Brain className="h-5 w-5 text-blue-600 mt-0.5" />
+              <div className="flex-1">
+                <h4 className="font-medium text-blue-900 mb-2">AI-Generated Analysis</h4>
+                <p className="text-blue-800 text-sm whitespace-pre-line">
+                  {aiInsights.stockRecommendations.find(rec => rec.symbol === 'AI GENERATED')?.reasoning}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {aiInsights.stockRecommendations.filter(rec => rec.symbol !== 'AI GENERATED').map((rec, index) => (
+            <div key={index} className="border border-gray-200 rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center space-x-3">
-                  <span className="font-bold text-lg text-gray-900">{rec.symbol}</span>
-                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${getActionColor(rec.action)}`}>
-                    {rec.action}
-                  </span>
-                  <span className="text-sm text-gray-600">{rec.timeframe}</span>
+                <h4 className="font-semibold text-gray-900">{rec.symbol}</h4>
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${getActionColor(rec.action)}`}>
+                  {rec.action}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-sm mb-3">
+                <div>
+                  <span className="text-gray-600">Confidence: </span>
+                  <span className="font-semibold text-purple-600">{rec.confidence}%</span>
                 </div>
-                <div className="flex items-center space-x-4">
-                  <div className="text-right">
-                    <span className="text-xs text-gray-500">AI Score</span>
-                    <p className="text-sm font-bold text-purple-600">{rec.aiScore}/10</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs text-gray-500">Confidence</span>
-                    <p className="text-sm font-bold text-blue-600">{rec.confidence}%</p>
-                  </div>
+                <div>
+                  <span className="text-gray-600">AI Score: </span>
+                  <span className="font-semibold text-blue-600">{rec.aiScore}/10</span>
                 </div>
               </div>
 
@@ -400,8 +526,24 @@ const AIAnalysisTab = () => {
           <Eye className="h-5 w-5 mr-2 text-blue-600" />
           AI Pattern Recognition
         </h3>
+        
+        {/* AI-Generated Technical Analysis */}
+        {aiInsights.patternRecognition.find(pattern => pattern.pattern === 'AI ANALYSIS') && (
+          <div className="mb-6 p-4 bg-blue-50 rounded-lg border-l-4 border-blue-400">
+            <div className="flex items-start space-x-2">
+              <Brain className="h-5 w-5 text-blue-600 mt-0.5" />
+              <div className="flex-1">
+                <h4 className="font-medium text-blue-900 mb-2">AI-Generated Technical Analysis</h4>
+                <p className="text-blue-800 text-sm whitespace-pre-line">
+                  {aiInsights.patternRecognition.find(pattern => pattern.pattern === 'AI ANALYSIS')?.aiAnalysis}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+        
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {aiInsights.patternRecognition.map((pattern, index) => (
+          {aiInsights.patternRecognition.filter(pattern => pattern.pattern !== 'AI ANALYSIS').map((pattern, index) => (
             <div key={index} className="border border-gray-200 rounded-lg p-4">
               <div className="text-center mb-3">
                 <h4 className="font-semibold text-gray-900">{pattern.pattern}</h4>

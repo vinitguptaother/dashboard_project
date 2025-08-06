@@ -63,16 +63,21 @@ app.get('/api/config/stats', (req, res) => {
 
 // Proxy endpoint to Perplexity AI
 app.post('/api/perplexity/ask', async (req, res) => {
+  console.log('Received body:', req.body); // Debug log
   const { question } = req.body;
   if (!question) {
+    console.log('Missing question in request body');
     return res.status(400).json({ error: 'Missing question' });
   }
+  
+  console.log('Making request to Perplexity API with question:', question);
+  
   try {
     // Perplexity's /chat/completions endpoint expects OpenAI-style payload
     const response = await axios.post(
       'https://api.perplexity.ai/chat/completions',
       {
-        model: 'pplx-70b-online', // You may change this to another model if needed
+        model: 'sonar', // Changed model to sonar
         messages: [
           { role: 'user', content: question }
         ]
@@ -81,11 +86,15 @@ app.post('/api/perplexity/ask', async (req, res) => {
         headers: {
           'Authorization': 'Bearer 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',
           'Content-Type': 'application/json'
-        }
+        },
+        timeout: 10000 // 10 second timeout
       }
     );
+    console.log('Perplexity API response received');
     res.json(response.data);
   } catch (error) {
+    console.error('Perplexity API error:', error.message);
+    console.error('Error details:', error.response?.data || error.response?.status);
     res.status(500).json({ error: error.message || 'Perplexity API error' });
   }
 });

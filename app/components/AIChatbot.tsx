@@ -50,13 +50,13 @@ const AIChatbot = () => {
     setIsTyping(true);
 
     try {
-      const res = await fetch('/api/perplexity/ask', {
+      const res = await fetch('http://localhost:5001/api/perplexity/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: userMessage.content })
       });
       const data = await res.json();
-      const perplexityContent = data.answer || data.choices?.[0]?.text || JSON.stringify(data);
+      const perplexityContent = data.choices?.[0]?.message?.content || data.answer || JSON.stringify(data);
       const botMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: 'bot',
