@@ -109,6 +109,36 @@ class WebSocketService {
         }
       });
 
+      // Handle trading signals subscription
+      socket.on('subscribe_trading_signals', (symbols) => {
+        this.handleTradingSignalsSubscription(socket, symbols);
+      });
+
+      // Handle screener updates subscription
+      socket.on('subscribe_screener', (filters) => {
+        this.handleScreenerSubscription(socket, filters);
+      });
+
+      // Handle AI analysis subscription
+      socket.on('subscribe_ai_analysis', () => {
+        if (socket.userId) {
+          socket.join(`ai_analysis_${socket.userId}`);
+          apiLogger.info('WebSocketService', 'aiAnalysisSubscribed', {
+            userId: socket.userId
+          });
+        }
+      });
+
+      // Handle real-time notifications
+      socket.on('subscribe_notifications', () => {
+        if (socket.userId) {
+          socket.join(`notifications_${socket.userId}`);
+          apiLogger.info('WebSocketService', 'notificationsSubscribed', {
+            userId: socket.userId
+          });
+        }
+      });
+
       // Handle ping for connection health
       socket.on('ping', () => {
         socket.emit('pong', { timestamp: Date.now() });
@@ -179,6 +209,41 @@ class WebSocketService {
     apiLogger.info('WebSocketService', 'newsSubscribed', {
       socketId: socket.id,
       categories: categories
+    });
+  }
+
+  // Handle trading signals subscription
+  handleTradingSignalsSubscription(socket, symbols) {
+    if (!Array.isArray(symbols)) return;
+
+    symbols.forEach(symbol => {
+      const roomName = `trading_signals_${symbol.toUpperCase()}`;
+      socket.join(roomName);
+    });
+
+    apiLogger.info('WebSocketService', 'tradingSignalsSubscribed', {
+      socketId: socket.id,
+      symbols: symbols
+    });
+  }
+
+  // Handle screener subscription
+  handleScreenerSubscription(socket, filters) {
+    const roomName = `screener_${socket.userId || 'anonymous'}`;
+    socket.join(roomName);
+    
+    // Store screener filters for this user
+    if (socket.userId) {
+      const user = this.connectedUsers.get(socket.userId);
+      if (user) {
+        user.screenerFilters = filters;
+      }
+    }
+
+    apiLogger.info('WebSocketService', 'screenerSubscribed', {
+      socketId: socket.id,
+      userId: socket.userId,
+      filters: filters
     });
   }
 
@@ -284,6 +349,105 @@ class WebSocketService {
       apiLogger.error('WebSocketService', 'broadcastPortfolioUpdate', error, {
         userId
       });
+    }
+  }
+
+  // Broadcast trading signals update
+  broadcastTradingSignalsUpdate(symbol, signalData) {
+    try {
+      const roomName = `trading_signals_${symbol.toUpperCase()}`;
+      this.io.to(roomName).emit('trading_signals_update', {
+        symbol: symbol.toUpperCase(),
+        data: signalData,
+        timestamp: new Date().toISOString()
+      });
+
+      apiLogger.info('WebSocketService', 'tradingSignalsBroadcast', {
+        symbol: symbol.toUpperCase()
+      });
+
+    } catch (error) {
+      apiLogger.error('WebSocketService', 'broadcastTradingSignalsUpdate', error, {
+        symbol
+      });
+    }
+  }
+
+  // Broadcast screener update
+  broadcastScreenerUpdate(userId, screenerData) {
+    try {
+      const roomName = `screener_${userId}`;
+      this.io.to(roomName).emit('screener_update', {
+        data: screenerData,
+        timestamp: new Date().toISOString()
+      });
+
+      apiLogger.info('WebSocketService', 'screenerBroadcast', {
+        userId: userId
+      });
+
+    } catch (error) {
+      apiLogger.error('WebSocketService', 'broadcastScreenerUpdate', error, {
+        userId
+      });
+    }
+  }
+
+  // Broadcast AI analysis update
+  broadcastAIAnalysisUpdate(userId, analysisData) {
+    try {
+      const roomName = `ai_analysis_${userId}`;
+      this.io.to(roomName).emit('ai_analysis_update', {
+        data: analysisData,
+        timestamp: new Date().toISOString()
+      });
+
+      apiLogger.info('WebSocketService', 'aiAnalysisBroadcast', {
+        userId: userId
+      });
+
+    } catch (error) {
+      apiLogger.error('WebSocketService', 'broadcastAIAnalysisUpdate', error, {
+        userId
+      });
+    }
+  }
+
+  // Broadcast notification to user
+  broadcastNotificationToUser(userId, notification) {
+    try {
+      const roomName = `notifications_${userId}`;
+      this.io.to(roomName).emit('notification', {
+        ...notification,
+        timestamp: new Date().toISOString()
+      });
+
+      apiLogger.info('WebSocketService', 'notificationBroadcast', {
+        userId: userId,
+        type: notification.type
+      });
+
+    } catch (error) {
+      apiLogger.error('WebSocketService', 'broadcastNotificationToUser', error, {
+        userId
+      });
+    }
+  }
+
+  // Broadcast system-wide notification
+  broadcastSystemNotification(notification) {
+    try {
+      this.io.emit('system_notification', {
+        ...notification,
+        timestamp: new Date().toISOString()
+      });
+
+      apiLogger.info('WebSocketService', 'systemNotificationBroadcast', {
+        type: notification.type
+      });
+
+    } catch (error) {
+      apiLogger.error('WebSocketService', 'broadcastSystemNotification', error);
     }
   }
 

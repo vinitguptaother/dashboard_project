@@ -14,12 +14,12 @@ const apiConfigSchema = new mongoose.Schema({
   provider: {
     type: String,
     required: true,
-    enum: ['yahoo_finance', 'alpha_vantage', 'newsapi', 'fmp', 'coingecko', 'perplexity', 'custom']
+    enum: ['yahoo_finance', 'alpha_vantage', 'newsapi', 'fmp', 'coingecko', 'perplexity', 'alice_blue', 'custom']
   },
   category: {
     type: String,
     required: true,
-    enum: ['market-data', 'news', 'technical-analysis', 'fundamental-analysis', 'ai-ml', 'crypto']
+    enum: ['market-data', 'news', 'technical-analysis', 'fundamental-analysis', 'ai-ml', 'crypto', 'broker']
   },
   endpoint: {
     type: String,
@@ -78,6 +78,12 @@ const apiConfigSchema = new mongoose.Schema({
     default: true
   },
   description: String,
+  // Alice Blue specific fields
+  appId: String,        // Changed from appCode to appId
+  apiSecret: String,    // Changed from appSecret to apiSecret
+  username: String,
+  password: String,
+  twoFA: String,
   createdAt: {
     type: Date,
     default: Date.now

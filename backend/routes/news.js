@@ -94,6 +94,71 @@ router.get('/', optionalAuth, async (req, res) => {
   }
 });
 
+// @route   GET /api/news/live
+// @desc    Real-time news from RSS feeds (ET, Business Standard, Moneycontrol, LiveMint)
+//          This is the PRIMARY news source — no API key needed, no 24h delay.
+//          Cached for 10 minutes in Redis to avoid hammering RSS feeds.
+// @access  Public
+router.get('/live', optionalAuth, async (req, res) => {
+  try {
+    const { fetchRSSNews } = require('../services/rssNewsService');
+    const redis = req.app.locals.redis;
+    const cacheKey = 'news:rss:live';
+
+    // Try cache first (10 min TTL — short enough for freshness, long enough to not hammer feeds)
+    const cached = await getCachedData(redis, cacheKey);
+    if (cached) {
+      return res.json({
+        status: 'success',
+        data: { news: cached },
+        count: cached.length,
+        source: 'cache',
+        cached: true,
+      });
+    }
+
+    const articles = await fetchRSSNews();
+
+    // Cache results for 10 minutes
+    await setCachedData(redis, cacheKey, articles, 600);
+
+    res.json({
+      status: 'success',
+      data: { news: articles },
+      count: articles.length,
+      source: 'rss',
+      cached: false,
+    });
+
+  } catch (error) {
+    console.error('Live RSS news error:', error);
+
+    // Fallback: try MongoDB cache if RSS fails
+    try {
+      const dbNews = await News.find({})
+        .sort({ publishedAt: -1 })
+        .limit(20)
+        .lean();
+
+      if (dbNews.length > 0) {
+        return res.json({
+          status: 'success',
+          data: { news: dbNews },
+          count: dbNews.length,
+          source: 'db_fallback',
+        });
+      }
+    } catch (dbErr) {
+      console.error('DB fallback also failed:', dbErr.message);
+    }
+
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch live news',
+    });
+  }
+});
+
 // @route   GET /api/news/:id
 // @desc    Get specific news article
 // @access  Public

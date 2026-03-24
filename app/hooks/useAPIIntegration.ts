@@ -26,7 +26,7 @@ export const useAPIIntegration = () => {
     try {
       const newAPI = await apiService.addAPI(config);
       return { success: true, api: newAPI };
-    } catch (error) {
+    } catch (error: any) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to add API' };
     } finally {
       setIsLoading(false);
@@ -37,7 +37,7 @@ export const useAPIIntegration = () => {
     try {
       const success = await apiService.updateAPI(id, updates);
       return { success };
-    } catch (error) {
+    } catch (error: any) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to update API' };
     }
   };
@@ -46,7 +46,7 @@ export const useAPIIntegration = () => {
     try {
       const success = apiService.deleteAPI(id);
       return { success };
-    } catch (error) {
+    } catch (error: any) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to delete API' };
     }
   };
@@ -80,6 +80,52 @@ export const useAPIIntegration = () => {
     return apiService.getConnectedAPIs();
   };
 
+  // Alice Blue specific functions
+  const testAliceBlueConnection = async () => {
+    try {
+      const response = await fetch('/api/alice-blue/test-connection', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      const result = await response.json();
+      return result;
+    } catch (error: any) {
+      return { status: 'error', message: 'Failed to test Alice Blue connection' };
+    }
+  };
+
+  const getAliceBlueMarketData = async (symbol: string, exchange: string = 'NSE') => {
+    try {
+      const response = await fetch(`/api/alice-blue/market-data/${symbol}?exchange=${exchange}`);
+      const result = await response.json();
+      return result;
+    } catch (error: any) {
+      return { status: 'error', message: 'Failed to fetch market data' };
+    }
+  };
+
+  const getAliceBluePortfolio = async () => {
+    try {
+      const response = await fetch('/api/alice-blue/portfolio');
+      const result = await response.json();
+      return result;
+    } catch (error: any) {
+      return { status: 'error', message: 'Failed to fetch portfolio' };
+    }
+  };
+
+  const getAliceBlueBalance = async () => {
+    try {
+      const response = await fetch('/api/alice-blue/balance');
+      const result = await response.json();
+      return result;
+    } catch (error: any) {
+      return { status: 'error', message: 'Failed to fetch balance' };
+    }
+  };
+
   return {
     apis,
     isLoading,
@@ -91,6 +137,11 @@ export const useAPIIntegration = () => {
     getCachedData,
     getAPIStats,
     getAPIsByCategory,
-    getConnectedAPIs
+    getConnectedAPIs,
+    // Alice Blue functions
+    testAliceBlueConnection,
+    getAliceBlueMarketData,
+    getAliceBluePortfolio,
+    getAliceBlueBalance
   };
 };

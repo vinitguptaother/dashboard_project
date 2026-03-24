@@ -1,0 +1,469 @@
+ANGEL ONE API INTEGRATION - CUSTOMER SUPPORT SUBMISSION
+========================================================
+
+Dear Angel One Customer Support Team,
+
+I am experiencing issues with your Smart API integration and would like your assistance in resolving the problem. Below is the complete code implementation I'm using along with the error details.
+
+ISSUE DESCRIPTION:
+------------------
+I am implementing the Angel One Smart API to fetch Last Traded Price (LTP) data for stocks, but encountering authentication and API response issues. The code follows your official documentation but is not working as expected.
+
+ENVIRONMENT SETUP:
+------------------
+- Node.js application using Next.js framework
+- Using official Angel One Smart API endpoints
+- Following TOTP-based authentication as per documentation
+- Environment variables properly configured
+
+CODE IMPLEMENTATION:
+====================
+
+1. MAIN API ENDPOINT FILE (pages/api/angelone-ltp.js):
+------------------------------------------------------
+
+// pages/api/angelone-ltp.js
+const { angelOneHelper } = require('../../utils/angelOneHelper');
+
+// All authentication and market data logic is now handled by angelOneHelper
+
+export default async function handler(req, res) {
+  const { exchange = 'NSE', symbol = 'TATAMOTORS-EQ', batch, totp } = req.query;
+  const { totp: bodyTotp } = req.body || {};
+
+  try {
+    // Check if we need to force re-authentication with provided TOTP
+    const totpCode = totp || bodyTotp;
+    if (totpCode) {
+      console.log('Using provided TOTP for authentication');
+      await angelOneHelper.refreshAuthentication(totpCode);
+    }
+
+    // Get authentication status
+    const authStatus = angelOneHelper.getAuthStatus();
+    console.log('Authentication status:', authStatus);
+
+    if (batch && req.body?.symbols) {
+      // Batch request
+      const results = await angelOneHelper.getBatchLTP(req.body.symbols);
+      res.status(200).json({ 
+        status: 'success',
+        data: results,
+        authStatus: authStatus,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      // Single symbol request
+      const quote = await angelOneHelper.getLTP(exchange, symbol);
+      res.status(200).json({ 
+        status: 'success',
+        data: {
+          exchange, 
+          symbol, 
+          ...quote
+        },
+        authStatus: authStatus,
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (err) {
+    console.error('Angel One API Error:', err);
+    
+    // Provide more context in error response
+    const authStatus = angelOneHelper.getAuthStatus();
+    res.status(500).json({ 
+      status: 'error',
+      error: err.message,
+      authStatus: authStatus,
+      suggestion: !authStatus.hasTokens ? 
+        'Try providing a TOTP code in the request to authenticate' : 
+        'Check if your credentials are correct and try again',
+      timestamp: new Date().toISOString()
+    });
+  }
+}
+
+2. AUTHENTICATION SERVICE (services/angelOneAuth.js):
+----------------------------------------------------
+
+// services/angelOneAuth.js
+const axios = require('axios');
+const crypto = require('crypto');
+const os = require('os');
+
+/**
+ * Angel One Smart API Authentication Service
+ * Handles login, token management, and refresh operations
+ */
+class AngelOneAuthService {
+  constructor() {
+    // Environment variables
+    this.apiKey = process.env.ANGELONE_API_KEY;
+    this.clientCode = process.env.ANGELONE_CLIENT_CODE;
+    this.password = process.env.ANGELONE_PASSWORD;
+    this.totpSecret = process.env.ANGELONE_TOTP_SECRET;
+    
+    // Network configuration from environment
+    this.clientLocalIP = process.env.ANGELONE_LOCAL_IP || this.getLocalIP();
+    this.clientPublicIP = process.env.ANGELONE_PUBLIC_IP || '127.0.0.1';
+    this.macAddress = process.env.ANGELONE_MAC_ADDRESS || this.getMACAddress();
+    
+    // Token storage
+    this.tokens = {
+      jwtToken: null,
+      refreshToken: null,
+      feedToken: null,
+      expiresAt: null
+    };
+    
+    // API endpoints
+    this.baseURL = 'https://apiconnect.angelone.in';
+    this.endpoints = {
+      login: '/rest/auth/angelbroking/user/v1/loginByPassword',
+      generateToken: '/rest/auth/angelbroking/jwt/v1/generateTokens',
+      logout: '/rest/secure/angelbroking/user/v1/logout'
+    };
+    
+    this.validateCredentials();
+  }
+
+  /**
+   * Generate TOTP code from secret
+   */
+  generateTOTP(secret = this.totpSecret) {
+    if (!secret) {
+      throw new Error('TOTP secret not configured. Please set ANGELONE_TOTP_SECRET environment variable.');
+    }
+    
+    try {
+      const time = Math.floor(Date.now() / 1000 / 30);
+      const key = Buffer.from(secret.replace(/\s/g, ''), 'base32');
+      const hmac = crypto.createHmac('sha1', key);
+      hmac.update(Buffer.from(time.toString(16).padStart(16, '0'), 'hex'));
+      const hash = hmac.digest();
+      const offset = hash[hash.length - 1] & 0xf;
+      const code = ((hash[offset] & 0x7f) << 24) |
+                   ((hash[offset + 1] & 0xff) << 16) |
+                   ((hash[offset + 2] & 0xff) << 8) |
+                   (hash[offset + 3] & 0xff);
+      return (code % 1000000).toString().padStart(6, '0');
+    } catch (error) {
+      throw new Error(`TOTP generation failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get standard headers for Angel One API requests
+   */
+  getStandardHeaders(includeAuth = false) {
+    const headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-UserType': 'USER',
+      'X-SourceID': 'WEB',
+      'X-ClientLocalIP': this.clientLocalIP,
+      'X-ClientPublicIP': this.clientPublicIP,
+      'X-MACAddress': this.macAddress,
+      'X-PrivateKey': this.apiKey
+    };
+
+    if (includeAuth && this.tokens.jwtToken) {
+      headers['Authorization'] = `Bearer ${this.tokens.jwtToken}`;
+    }
+
+    return headers;
+  }
+
+  /**
+   * Login to Angel One Smart API
+   */
+  async login(totpCode = null) {
+    try {
+      // Generate TOTP if not provided
+      if (!totpCode) {
+        totpCode = this.generateTOTP();
+        console.log('Generated TOTP code from secret');
+      }
+
+      if (!totpCode || totpCode.length !== 6) {
+        throw new Error('Valid 6-digit TOTP code is required');
+      }
+
+      const loginData = {
+        clientcode: this.clientCode,
+        password: this.password,
+        totp: totpCode
+      };
+
+      console.log('Angel One login request:', { 
+        ...loginData, 
+        password: '***', 
+        totp: '***' 
+      });
+
+      const response = await axios.post(
+        `${this.baseURL}${this.endpoints.login}`,
+        loginData,
+        {
+          headers: this.getStandardHeaders(),
+          timeout: 30000 // 30 second timeout
+        }
+      );
+
+      if (!response.data || !response.data.status) {
+        throw new Error(`Login failed: ${response.data?.message || response.data?.errorMessage || 'Unknown error'}`);
+      }
+
+      // Store tokens with expiration (Angel One tokens last ~28 hours)
+      const tokenData = response.data.data;
+      this.tokens = {
+        jwtToken: tokenData.jwtToken,
+        refreshToken: tokenData.refreshToken,
+        feedToken: tokenData.feedToken,
+        expiresAt: new Date(Date.now() + (27 * 60 * 60 * 1000)) // 27 hours from now
+      };
+
+      console.log('Angel One login successful');
+      return {
+        success: true,
+        tokens: {
+          jwtToken: this.tokens.jwtToken,
+          refreshToken: this.tokens.refreshToken,
+          feedToken: this.tokens.feedToken
+        },
+        expiresAt: this.tokens.expiresAt
+      };
+
+    } catch (error) {
+      console.error('Angel One login error:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Make authenticated API request
+   */
+  async makeAuthenticatedRequest(method, endpoint, data = null, customHeaders = {}) {
+    const headers = await this.getAuthenticatedHeaders();
+    
+    const config = {
+      method,
+      url: `${this.baseURL}${endpoint}`,
+      headers: { ...headers, ...customHeaders },
+      timeout: 30000
+    };
+
+    if (data) {
+      config.data = data;
+    }
+
+    try {
+      const response = await axios(config);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
+}
+
+3. HELPER SERVICE (utils/angelOneHelper.js):
+--------------------------------------------
+
+// utils/angelOneHelper.js
+const { angelOneAuth } = require('../services/angelOneAuth');
+
+/**
+ * Angel One API Helper Functions
+ * Provides convenient methods for common Angel One API operations
+ */
+class AngelOneHelper {
+  constructor() {
+    this.auth = angelOneAuth;
+  }
+
+  /**
+   * Get market data for a single symbol
+   */
+  async getMarketData(exchange, symbolToken, mode = 'FULL') {
+    const endpoint = '/rest/secure/angelbroking/market/v1/marketData';
+    
+    const requestData = {
+      mode: mode.toUpperCase(),
+      exchangeTokens: {
+        [exchange]: [symbolToken]
+      }
+    };
+
+    try {
+      const response = await this.auth.makeAuthenticatedRequest('POST', endpoint, requestData);
+      
+      if (!response.status) {
+        throw new Error(`Market data request failed: ${response.message || 'Unknown error'}`);
+      }
+
+      const data = response.data;
+      if (!data || !data.fetched || data.fetched.length === 0) {
+        throw new Error('No market data found for the requested symbol');
+      }
+
+      const marketData = data.fetched[0];
+      return {
+        ltp: parseFloat(marketData.ltp || 0),
+        open: parseFloat(marketData.open || 0),
+        high: parseFloat(marketData.high || 0),
+        low: parseFloat(marketData.low || 0),
+        close: parseFloat(marketData.close || 0),
+        volume: parseInt(marketData.volume || 0),
+        exchange: marketData.exchange,
+        symbolToken: marketData.symboltoken,
+        timestamp: new Date().toISOString()
+      };
+
+    } catch (error) {
+      console.error('Market data fetch error:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Search for a symbol and get its token
+   */
+  async searchSymbol(exchange, searchTerm) {
+    const endpoint = '/rest/secure/angelbroking/order/v1/searchScrip';
+    
+    const requestData = {
+      exchange: exchange,
+      searchscrip: searchTerm.replace('-EQ', '')
+    };
+
+    try {
+      const response = await this.auth.makeAuthenticatedRequest('POST', endpoint, requestData);
+      
+      if (!response.status) {
+        throw new Error(`Symbol search failed: ${response.message || 'Unknown error'}`);
+      }
+
+      if (!response.data || response.data.length === 0) {
+        throw new Error(`No symbols found for search term: ${searchTerm}`);
+      }
+
+      return response.data.map(item => ({
+        symbolToken: item.symboltoken,
+        symbol: item.tradingsymbol,
+        name: item.name,
+        exchange: item.exchange,
+        expirydate: item.expirydate,
+        strike: item.strike,
+        lotsize: item.lotsize,
+        instrumenttype: item.instrumenttype,
+        tick_size: item.tick_size
+      }));
+
+    } catch (error) {
+      console.error('Symbol search error:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get LTP (Last Traded Price) for a symbol
+   */
+  async getLTP(exchange, symbol) {
+    try {
+      // First search for the symbol to get its token
+      const searchResults = await this.searchSymbol(exchange, symbol);
+      
+      if (searchResults.length === 0) {
+        throw new Error(`Symbol ${symbol} not found on ${exchange}`);
+      }
+
+      const symbolData = searchResults[0]; // Take first match
+      
+      // Get market data using the symbol token
+      const marketData = await this.getMarketData(exchange, symbolData.symbolToken);
+      
+      return {
+        ...marketData,
+        symbol: symbolData.symbol,
+        name: symbolData.name
+      };
+
+    } catch (error) {
+      console.error(`LTP fetch error for ${exchange}:${symbol}:`, error.message);
+      throw error;
+    }
+  }
+}
+
+// Export singleton instance
+const angelOneHelper = new AngelOneHelper();
+
+module.exports = {
+  AngelOneHelper,
+  angelOneHelper
+};
+
+SPECIFIC ERRORS ENCOUNTERED:
+============================
+
+1. Authentication Issues:
+   - TOTP codes sometimes rejected even when valid
+   - Token expiration handling not working as expected
+   - Login responses sometimes return empty or malformed JSON
+
+2. Market Data API Issues:
+   - Symbol search API sometimes returns empty results for valid symbols
+   - Market data API returns "No market data found" for valid symbol tokens
+   - Inconsistent response formats from your servers
+
+3. Network/Connection Issues:
+   - Intermittent timeout errors
+   - Connection refused errors during market hours
+
+SAMPLE ERROR LOGS:
+==================
+
+Error 1: Authentication Failed
+Angel One login error: Authentication failed: Invalid credentials or TOTP
+
+Error 2: Symbol Search Failed  
+Symbol search error: No symbols found for search term: TATAMOTORS-EQ
+
+Error 3: Market Data Failed
+Market data request failed: No market data found for the requested symbol
+
+ENVIRONMENT DETAILS:
+===================
+- Node.js Version: v18.x
+- Operating System: Windows 10
+- Network: Stable broadband connection
+- API Key: Valid and active
+- Client Code: Valid and verified
+- TOTP Secret: Configured and generating valid codes
+
+REQUEST FOR ASSISTANCE:
+======================
+
+1. Please verify if there are any issues with the API endpoints I'm using
+2. Confirm if the authentication flow and headers are correct
+3. Help identify why symbol search sometimes fails for valid symbols
+4. Provide guidance on proper error handling for your API responses
+5. Suggest any improvements to the implementation
+
+I have followed your official documentation and examples, but still facing these issues. Please provide specific guidance on what might be wrong with my implementation or if there are any known issues with the API endpoints.
+
+Thank you for your assistance.
+
+Best regards,
+[Your Name]
+[Your Client Code]
+[Your Contact Information]
+
+TECHNICAL SPECIFICATIONS:
+=========================
+- Framework: Next.js
+- HTTP Client: Axios
+- Authentication: TOTP-based with automatic token refresh
+- Error Handling: Comprehensive try-catch blocks
+- Logging: Detailed console logging for debugging
+- Timeout: 30-second timeout for all API requests

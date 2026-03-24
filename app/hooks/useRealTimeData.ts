@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { stockDataService, MarketData, NewsItem } from '../lib/stockDataService';
 import { portfolioService, Portfolio } from '../lib/portfolioService';
 import { alertService, Notification } from '../lib/alertService';
+import { AlertClient, AuthClient } from '../lib/apiService';
 
 // Hook for real-time market data
 export const useMarketData = () => {
@@ -110,6 +111,8 @@ export const usePortfolios = () => {
 export const useNotifications = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const handleNotificationUpdate = (notificationData: Notification[]) => {
@@ -124,8 +127,92 @@ export const useNotifications = () => {
     };
   }, []);
 
-  const createPriceAlert = (symbol: string, targetPrice: number, condition: 'above' | 'below') => {
-    return alertService.createPriceAlert(symbol, targetPrice, condition);
+  const loadAlerts = async () => {
+    setLoading(true);
+    try {
+      const json = await AlertClient.list();
+      if (json.status === 'success') {
+        setAlerts(json.data.alerts || []);
+        console.log('✅ Successfully loaded alerts from backend');
+      } else {
+        console.warn('⚠️  Alert loading returned error status:', json.message);
+        setAlerts([]);
+      }
+    } catch (error: any) {
+      console.warn('⚠️  Failed to load alerts, using empty list:', error instanceof Error ? error.message : error);
+      setAlerts([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Add small delay to allow backend to be ready
+    const timeoutId = setTimeout(() => {
+      loadAlerts();
+    }, 1500); // Wait 1.5 seconds for backend initialization
+    
+    return () => clearTimeout(timeoutId);
+  }, []);
+
+  const createPriceAlert = async (symbol: string, targetPrice: number, condition: 'above' | 'below') => {
+    
+    try {
+      const json = await AlertClient.create({
+        symbol: symbol.toUpperCase(),
+        condition,
+        targetValue: targetPrice,
+        alertType: 'price',
+        message: `${symbol} ${condition} ${targetPrice}`
+      });
+      
+      if (json.status === 'success') {
+        await loadAlerts();
+        return true;
+      }
+    } catch (error: any) {
+      console.error('Failed to create alert:', error);
+    }
+    return false;
+  };
+
+  const updateAlert = async (id: string, updates: any) => {
+    try {
+      const json = await AlertClient.update(id, updates);
+      if (json.status === 'success') {
+        await loadAlerts();
+        return true;
+      }
+    } catch (error: any) {
+      console.error('Failed to update alert:', error);
+    }
+    return false;
+  };
+
+  const deleteAlert = async (id: string) => {
+    try {
+      const json = await AlertClient.delete(id);
+      if (json.status === 'success') {
+        await loadAlerts();
+        return true;
+      }
+    } catch (error: any) {
+      console.error('Failed to delete alert:', error);
+    }
+    return false;
+  };
+
+  const acknowledgeAlert = async (id: string) => {
+    try {
+      const json = await AlertClient.acknowledge(id);
+      if (json.status === 'success') {
+        await loadAlerts();
+        return true;
+      }
+    } catch (error: any) {
+      console.error('Failed to acknowledge alert:', error);
+    }
+    return false;
   };
 
   const markAsRead = (notificationId: string) => {
@@ -143,10 +230,16 @@ export const useNotifications = () => {
   return {
     notifications,
     unreadCount,
+    alerts,
+    loading,
     createPriceAlert,
+    updateAlert,
+    deleteAlert,
+    acknowledgeAlert,
     markAsRead,
     markAllAsRead,
-    deleteNotification
+    deleteNotification,
+    loadAlerts
   };
 };
 

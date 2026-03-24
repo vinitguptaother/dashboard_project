@@ -36,11 +36,18 @@ const APIIntegrationTab = () => {
     endpoint: '',
     description: '',
     headers: {} as { [key: string]: string },
-    parameters: {} as { [key: string]: string }
+    parameters: {} as { [key: string]: string },
+    // Alice Blue specific fields
+    appId: '',
+    apiSecret: '',
+    username: '',
+    password: '',
+    twoFA: ''
   });
 
   const apiCategories = [
     { id: 'market-data', label: 'Market Data', icon: '📊', description: 'Real-time and historical stock market data' },
+    { id: 'broker', label: 'Broker APIs', icon: '🏦', description: 'Direct broker integration for trading and portfolio' },
     { id: 'news', label: 'Financial News', icon: '📰', description: 'Breaking news and market analysis' },
     { id: 'technical-analysis', label: 'Technical Analysis', icon: '📈', description: 'Charts, indicators, and pattern recognition' },
     { id: 'fundamental-analysis', label: 'Fundamental Data', icon: '📋', description: 'Company financials and ratios' },
@@ -50,6 +57,19 @@ const APIIntegrationTab = () => {
   ];
 
   const availableAPIs = {
+    'broker': [
+      {
+        name: 'Alice Blue',
+        provider: 'alice_blue',
+        description: 'Indian broker API for trading and portfolio management',
+        features: ['Real-time quotes', 'Order placement', 'Portfolio tracking', 'Market depth'],
+        pricing: 'Free with account',
+        documentation: 'https://ant.aliceblueonline.com',
+        endpoint: 'https://ant.aliceblueonline.com/open-api/od/v1',
+        requiresAuth: true,
+        authFields: ['appId', 'apiSecret', 'apiKey', 'username', 'password', 'twoFA']
+      }
+    ],
     'market-data': [
       {
         name: 'Yahoo Finance',
@@ -191,6 +211,15 @@ const APIIntegrationTab = () => {
       return;
     }
 
+    // Special validation for Alice Blue
+    if (newAPIForm.provider === 'alice_blue') {
+      if (!newAPIForm.appId || !newAPIForm.apiSecret || !newAPIForm.apiKey || 
+          !newAPIForm.username || !newAPIForm.password || !newAPIForm.twoFA) {
+        alert('Please fill in all Alice Blue required fields (App ID, API Secret, API Key, Username, Password, 2FA)');
+        return;
+      }
+    }
+
     const result = await addAPI({
       name: newAPIForm.name,
       provider: newAPIForm.provider,
@@ -200,7 +229,13 @@ const APIIntegrationTab = () => {
       description: newAPIForm.description,
       headers: newAPIForm.headers,
       parameters: newAPIForm.parameters,
-      rateLimit: '1000/hour'
+      rateLimit: '1000/hour',
+      // Alice Blue specific fields
+      appId: newAPIForm.appId,
+      apiSecret: newAPIForm.apiSecret,
+      username: newAPIForm.username,
+      password: newAPIForm.password,
+      twoFA: newAPIForm.twoFA
     });
 
     if (result.success) {
@@ -212,7 +247,13 @@ const APIIntegrationTab = () => {
         endpoint: '',
         description: '',
         headers: {},
-        parameters: {}
+        parameters: {},
+        // Reset Alice Blue fields
+        appId: '',
+        apiSecret: '',
+        username: '',
+        password: '',
+        twoFA: ''
       });
       setShowAddAPIModal(false);
     } else {
@@ -276,7 +317,13 @@ const APIIntegrationTab = () => {
       endpoint: apiTemplate.endpoint,
       description: apiTemplate.description,
       headers: {},
-      parameters: {}
+      parameters: {},
+      // Initialize Alice Blue fields if it's Alice Blue
+      appId: apiTemplate.provider === 'alice_blue' ? '' : '',
+      apiSecret: apiTemplate.provider === 'alice_blue' ? '' : '',
+      username: apiTemplate.provider === 'alice_blue' ? '' : '',
+      password: apiTemplate.provider === 'alice_blue' ? '' : '',
+      twoFA: apiTemplate.provider === 'alice_blue' ? '' : ''
     });
     setShowAddAPIModal(true);
   };
@@ -580,13 +627,19 @@ const APIIntegrationTab = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Provider *</label>
-                <input
-                  type="text"
+                <select
                   value={newAPIForm.provider}
                   onChange={(e) => setNewAPIForm({...newAPIForm, provider: e.target.value})}
                   className="w-full p-3 border border-gray-300 rounded-lg"
-                  placeholder="Enter provider name"
-                />
+                >
+                  <option value="">Select provider</option>
+                  <option value="alice_blue">Alice Blue</option>
+                  <option value="yahoo_finance">Yahoo Finance</option>
+                  <option value="alpha_vantage">Alpha Vantage</option>
+                  <option value="newsapi">NewsAPI</option>
+                  <option value="perplexity">Perplexity AI</option>
+                  <option value="custom">Custom</option>
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Category *</label>
@@ -611,6 +664,62 @@ const APIIntegrationTab = () => {
                   placeholder="Enter API key (optional)"
                 />
               </div>
+
+              {/* Alice Blue Specific Fields */}
+              {newAPIForm.provider === 'alice_blue' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">App ID *</label>
+                    <input
+                      type="text"
+                      value={newAPIForm.appId}
+                      onChange={(e) => setNewAPIForm({...newAPIForm, appId: e.target.value})}
+                      className="w-full p-3 border border-gray-300 rounded-lg"
+                      placeholder="Enter Alice Blue App ID"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">API Secret *</label>
+                    <input
+                      type="password"
+                      value={newAPIForm.apiSecret}
+                      onChange={(e) => setNewAPIForm({...newAPIForm, apiSecret: e.target.value})}
+                      className="w-full p-3 border border-gray-300 rounded-lg"
+                      placeholder="Enter Alice Blue API Secret"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Username *</label>
+                    <input
+                      type="text"
+                      value={newAPIForm.username}
+                      onChange={(e) => setNewAPIForm({...newAPIForm, username: e.target.value})}
+                      className="w-full p-3 border border-gray-300 rounded-lg"
+                      placeholder="Enter Alice Blue Username"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
+                    <input
+                      type="password"
+                      value={newAPIForm.password}
+                      onChange={(e) => setNewAPIForm({...newAPIForm, password: e.target.value})}
+                      className="w-full p-3 border border-gray-300 rounded-lg"
+                      placeholder="Enter Alice Blue Password"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">2FA Code *</label>
+                    <input
+                      type="text"
+                      value={newAPIForm.twoFA}
+                      onChange={(e) => setNewAPIForm({...newAPIForm, twoFA: e.target.value})}
+                      className="w-full p-3 border border-gray-300 rounded-lg"
+                      placeholder="Enter 2FA Code"
+                    />
+                  </div>
+                </>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Endpoint URL *</label>
                 <input

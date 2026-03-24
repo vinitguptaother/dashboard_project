@@ -1,45 +1,81 @@
 'use client';
 
-import { useState } from 'react';
-import { Settings, User, Bell, Shield, Palette, Database, Download } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Settings, User, Bell, Shield, Palette, Database, Download, Key, CheckCircle, Save } from 'lucide-react';
+import { AuthClient } from '../lib/apiService';
+import APIKeysTab from './APIKeysTab';
+
+const BACKEND_URL = 'http://localhost:5002';
+const SETTINGS_KEY = 'dashboard_settings';
+
+const defaultSettings = {
+  profile: {
+    name: '',
+    email: '',
+    phone: '',
+    experience: 'intermediate',
+    riskTolerance: 'moderate'
+  },
+  notifications: {
+    priceAlerts: true,
+    newsUpdates: true,
+    aiRecommendations: true,
+    portfolioUpdates: false,
+    emailNotifications: true,
+    smsAlerts: false
+  },
+  trading: {
+    defaultInvestment: 10000,
+    maxPositionSize: 5,
+    stopLossDefault: 5,
+    takeProfitDefault: 10,
+    autoExecute: false,
+    paperTrading: true
+  },
+  display: {
+    theme: 'light',
+    currency: 'INR',
+    language: 'english',
+    chartType: 'candlestick',
+    refreshRate: 30
+  }
+};
 
 const SettingsTab = () => {
   const [activeSection, setActiveSection] = useState('profile');
-  const [settings, setSettings] = useState({
-    profile: {
-      name: 'Rajesh Kumar',
-      email: 'rajesh.kumar@email.com',
-      phone: '+91 98765 43210',
-      experience: 'intermediate',
-      riskTolerance: 'moderate'
-    },
-    notifications: {
-      priceAlerts: true,
-      newsUpdates: true,
-      aiRecommendations: true,
-      portfolioUpdates: false,
-      emailNotifications: true,
-      smsAlerts: false
-    },
-    trading: {
-      defaultInvestment: 10000,
-      maxPositionSize: 5,
-      stopLossDefault: 5,
-      takeProfitDefault: 10,
-      autoExecute: false,
-      paperTrading: true
-    },
-    display: {
-      theme: 'light',
-      currency: 'INR',
-      language: 'english',
-      chartType: 'candlestick',
-      refreshRate: 30
+  const [settings, setSettings] = useState(defaultSettings);
+  const [loginEmail, setLoginEmail] = useState('demo@stockdashboard.com');
+  const [loginPassword, setLoginPassword] = useState('demo123');
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [changePwForm, setChangePwForm] = useState({ current: '', newPw: '', confirm: '' });
+  const [pwMessage, setPwMessage] = useState<string | null>(null);
+
+  // Load settings from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(SETTINGS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setSettings(prev => ({ ...prev, ...parsed }));
+      }
+    } catch {}
+  }, []);
+
+  const handleSaveAll = () => {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+      setSaveMessage('Settings saved successfully!');
+      setTimeout(() => setSaveMessage(null), 3000);
+    } catch {
+      setSaveMessage('Failed to save settings.');
+      setTimeout(() => setSaveMessage(null), 3000);
     }
-  });
+  };
 
   const sections = [
     { id: 'profile', label: 'Profile', icon: User },
+    { id: 'api-keys', label: 'API Keys', icon: Key },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'trading', label: 'Trading', icon: Settings },
     { id: 'display', label: 'Display', icon: Palette },
@@ -60,6 +96,25 @@ const SettingsTab = () => {
   const renderProfileSettings = () => (
     <div className="space-y-6">
       <h3 className="text-lg font-semibold text-gray-900">Profile Information</h3>
+      {/* Simple Auth Controls */}
+      <div className="p-4 border border-gray-200 rounded-lg">
+        <h4 className="font-medium text-gray-900 mb-2">Login</h4>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+          <div>
+            <label className="block text-sm text-gray-700 mb-1">Email</label>
+            <input value={loginEmail} onChange={(e)=>setLoginEmail(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg" />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-700 mb-1">Password</label>
+            <input type="password" value={loginPassword} onChange={(e)=>setLoginPassword(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg" />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={async()=>{ try{ await AuthClient.login(loginEmail, loginPassword); setAuthMessage('Logged in'); }catch(e:any){ setAuthMessage(e.message||'Login failed'); } }} className="px-4 py-2 bg-blue-600 text-white rounded-lg">Login</button>
+            <button onClick={()=>{ AuthClient.logout(); setAuthMessage('Logged out'); }} className="px-4 py-2 border border-gray-300 rounded-lg">Logout</button>
+          </div>
+        </div>
+        {authMessage && <div className="text-sm text-gray-700 mt-2">{authMessage}</div>}
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
@@ -150,78 +205,181 @@ const SettingsTab = () => {
     </div>
   );
 
+  // ─── Risk Management Settings (saved to MongoDB) ───
+  const [riskSettings, setRiskSettings] = useState({
+    capital: 500000, riskPerTrade: 2, maxPositionPct: 20, dailyLossLimitPct: 5
+  });
+  const [riskLoading, setRiskLoading] = useState(false);
+  const [riskMessage, setRiskMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Load risk settings from backend
+    fetch(`${BACKEND_URL}/api/risk/settings`)
+      .then(r => r.json())
+      .then(json => {
+        if (json.status === 'success' && json.data) {
+          setRiskSettings({
+            capital: json.data.capital,
+            riskPerTrade: json.data.riskPerTrade,
+            maxPositionPct: json.data.maxPositionPct,
+            dailyLossLimitPct: json.data.dailyLossLimitPct,
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const saveRiskSettings = async () => {
+    setRiskLoading(true);
+    setRiskMessage(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/risk/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(riskSettings),
+      });
+      const json = await res.json();
+      if (json.status === 'success') {
+        setRiskMessage('Risk settings saved!');
+      } else {
+        setRiskMessage(json.message || 'Failed to save');
+      }
+    } catch {
+      setRiskMessage('Could not connect to server');
+    } finally {
+      setRiskLoading(false);
+      setTimeout(() => setRiskMessage(null), 3000);
+    }
+  };
+
+  const formatINR = (n: number) => n.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
+
   const renderTradingSettings = () => (
     <div className="space-y-6">
-      <h3 className="text-lg font-semibold text-gray-900">Trading Preferences</h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Default Investment Amount (₹)</label>
+      <h3 className="text-lg font-semibold text-gray-900">Risk Management</h3>
+      <p className="text-sm text-gray-500">These settings control how the Position Sizer calculates trade quantities. They are saved to the database and apply across all tabs.</p>
+
+      {/* Capital */}
+      <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+        <label className="block text-sm font-semibold text-blue-800 mb-1">Trading Capital (₹)</label>
+        <p className="text-xs text-blue-600 mb-2">Your total capital available for trading. Update this whenever you add or withdraw money.</p>
+        <input
+          type="number"
+          value={riskSettings.capital}
+          onChange={(e) => setRiskSettings(p => ({ ...p, capital: Number(e.target.value) }))}
+          className="w-full p-3 border border-blue-300 rounded-lg text-lg font-semibold focus:ring-2 focus:ring-blue-400 focus:outline-none"
+          min={10000}
+          step={10000}
+        />
+        <p className="text-xs text-blue-500 mt-1">Current: {formatINR(riskSettings.capital)}</p>
+      </div>
+
+      {/* Risk Parameters */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="p-4 border border-gray-200 rounded-lg">
+          <label className="block text-sm font-semibold text-gray-700 mb-1">Risk Per Trade (%)</label>
+          <p className="text-xs text-gray-500 mb-2">Max % of capital you can lose on one trade. Industry standard: 1-2%.</p>
           <input
             type="number"
-            value={settings.trading.defaultInvestment}
-            onChange={(e) => handleSettingChange('trading', 'defaultInvestment', parseInt(e.target.value))}
-            className="w-full p-3 border border-gray-300 rounded-lg"
+            value={riskSettings.riskPerTrade}
+            onChange={(e) => setRiskSettings(p => ({ ...p, riskPerTrade: Number(e.target.value) }))}
+            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none"
+            min={0.5}
+            max={10}
+            step={0.5}
           />
+          <p className="text-xs text-gray-400 mt-1">
+            Max loss per trade: {formatINR((riskSettings.capital * riskSettings.riskPerTrade) / 100)}
+          </p>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Max Position Size (%)</label>
+        <div className="p-4 border border-gray-200 rounded-lg">
+          <label className="block text-sm font-semibold text-gray-700 mb-1">Max Position Size (%)</label>
+          <p className="text-xs text-gray-500 mb-2">Max % of capital in a single stock. Prevents over-concentration.</p>
           <input
             type="number"
-            value={settings.trading.maxPositionSize}
-            onChange={(e) => handleSettingChange('trading', 'maxPositionSize', parseInt(e.target.value))}
-            className="w-full p-3 border border-gray-300 rounded-lg"
+            value={riskSettings.maxPositionPct}
+            onChange={(e) => setRiskSettings(p => ({ ...p, maxPositionPct: Number(e.target.value) }))}
+            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none"
+            min={5}
+            max={100}
+            step={5}
           />
+          <p className="text-xs text-gray-400 mt-1">
+            Max per stock: {formatINR((riskSettings.capital * riskSettings.maxPositionPct) / 100)}
+          </p>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Default Stop Loss (%)</label>
+        <div className="p-4 border border-orange-200 rounded-lg bg-orange-50">
+          <label className="block text-sm font-semibold text-orange-700 mb-1">Daily Loss Limit (%)</label>
+          <p className="text-xs text-orange-600 mb-2">If your total losses today hit this %, the kill switch activates and blocks new trades.</p>
           <input
             type="number"
-            value={settings.trading.stopLossDefault}
-            onChange={(e) => handleSettingChange('trading', 'stopLossDefault', parseInt(e.target.value))}
-            className="w-full p-3 border border-gray-300 rounded-lg"
+            value={riskSettings.dailyLossLimitPct}
+            onChange={(e) => setRiskSettings(p => ({ ...p, dailyLossLimitPct: Number(e.target.value) }))}
+            className="w-full p-3 border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-400 focus:outline-none"
+            min={1}
+            max={25}
+            step={1}
           />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Default Take Profit (%)</label>
-          <input
-            type="number"
-            value={settings.trading.takeProfitDefault}
-            onChange={(e) => handleSettingChange('trading', 'takeProfitDefault', parseInt(e.target.value))}
-            className="w-full p-3 border border-gray-300 rounded-lg"
-          />
+          <p className="text-xs text-orange-500 mt-1">
+            Kill switch at: {formatINR((riskSettings.capital * riskSettings.dailyLossLimitPct) / 100)} daily loss
+          </p>
         </div>
       </div>
-      <div className="space-y-4">
-        <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+
+      {/* Quick reference */}
+      <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+        <h4 className="text-sm font-semibold text-gray-700 mb-2">Quick Reference</h4>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
           <div>
-            <h4 className="font-medium text-gray-900">Auto Execute Trades</h4>
-            <p className="text-sm text-gray-600">Automatically execute AI recommendations</p>
+            <p className="text-lg font-bold text-gray-900">{formatINR(riskSettings.capital)}</p>
+            <p className="text-xs text-gray-500">Total Capital</p>
           </div>
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              checked={settings.trading.autoExecute}
-              onChange={(e) => handleSettingChange('trading', 'autoExecute', e.target.checked)}
-              className="sr-only peer"
-            />
-            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-          </label>
-        </div>
-        <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
           <div>
-            <h4 className="font-medium text-gray-900">Paper Trading Mode</h4>
-            <p className="text-sm text-gray-600">Practice trading without real money</p>
+            <p className="text-lg font-bold text-orange-600">{formatINR((riskSettings.capital * riskSettings.riskPerTrade) / 100)}</p>
+            <p className="text-xs text-gray-500">Max Risk / Trade</p>
           </div>
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              checked={settings.trading.paperTrading}
-              onChange={(e) => handleSettingChange('trading', 'paperTrading', e.target.checked)}
-              className="sr-only peer"
-            />
-            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-          </label>
+          <div>
+            <p className="text-lg font-bold text-blue-600">{formatINR((riskSettings.capital * riskSettings.maxPositionPct) / 100)}</p>
+            <p className="text-xs text-gray-500">Max Position</p>
+          </div>
+          <div>
+            <p className="text-lg font-bold text-red-600">{formatINR((riskSettings.capital * riskSettings.dailyLossLimitPct) / 100)}</p>
+            <p className="text-xs text-gray-500">Daily Loss Limit</p>
+          </div>
         </div>
+      </div>
+
+      {/* Save button */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={saveRiskSettings}
+          disabled={riskLoading}
+          className="px-6 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+        >
+          <Save className="h-4 w-4" /> {riskLoading ? 'Saving...' : 'Save Risk Settings'}
+        </button>
+        {riskMessage && (
+          <span className={`text-sm font-medium ${riskMessage.includes('saved') ? 'text-green-600' : 'text-red-600'}`}>
+            {riskMessage}
+          </span>
+        )}
+      </div>
+
+      {/* Paper Trading toggle */}
+      <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+        <div>
+          <h4 className="font-medium text-gray-900">Paper Trading Mode</h4>
+          <p className="text-sm text-gray-600">Practice trading without real money</p>
+        </div>
+        <label className="relative inline-flex items-center cursor-pointer">
+          <input
+            type="checkbox"
+            checked={settings.trading.paperTrading}
+            onChange={(e) => handleSettingChange('trading', 'paperTrading', e.target.checked)}
+            className="sr-only peer"
+          />
+          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+        </label>
       </div>
     </div>
   );
@@ -299,60 +457,180 @@ const SettingsTab = () => {
       <h3 className="text-lg font-semibold text-gray-900">Security Settings</h3>
       <div className="space-y-4">
         <div className="p-4 border border-gray-200 rounded-lg">
-          <h4 className="font-medium text-gray-900 mb-2">Two-Factor Authentication</h4>
-          <p className="text-sm text-gray-600 mb-3">Add an extra layer of security to your account</p>
-          <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
-            Enable 2FA
-          </button>
-        </div>
-        <div className="p-4 border border-gray-200 rounded-lg">
           <h4 className="font-medium text-gray-900 mb-2">Change Password</h4>
           <p className="text-sm text-gray-600 mb-3">Update your account password</p>
-          <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-            Change Password
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-sm text-gray-700 mb-1">Current Password</label>
+              <input type="password" value={changePwForm.current} onChange={(e) => setChangePwForm(p => ({ ...p, current: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg" placeholder="Current password" />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-700 mb-1">New Password</label>
+              <input type="password" value={changePwForm.newPw} onChange={(e) => setChangePwForm(p => ({ ...p, newPw: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg" placeholder="New password" />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-700 mb-1">Confirm New Password</label>
+              <input type="password" value={changePwForm.confirm} onChange={(e) => setChangePwForm(p => ({ ...p, confirm: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg" placeholder="Confirm password" />
+            </div>
+          </div>
+          <button
+            onClick={async () => {
+              if (!changePwForm.current || !changePwForm.newPw) { setPwMessage('Please fill all fields.'); return; }
+              if (changePwForm.newPw !== changePwForm.confirm) { setPwMessage('New passwords do not match.'); return; }
+              if (changePwForm.newPw.length < 6) { setPwMessage('Password must be at least 6 characters.'); return; }
+              try {
+                const token = localStorage.getItem('token');
+                const res = await fetch(`${BACKEND_URL}/api/auth/change-password`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+                  body: JSON.stringify({ currentPassword: changePwForm.current, newPassword: changePwForm.newPw }),
+                });
+                const data = await res.json();
+                setPwMessage(data.message || (res.ok ? 'Password changed!' : 'Failed to change password.'));
+                if (res.ok) setChangePwForm({ current: '', newPw: '', confirm: '' });
+              } catch { setPwMessage('Could not reach server. Make sure backend is running.'); }
+              setTimeout(() => setPwMessage(null), 4000);
+            }}
+            className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Update Password
+          </button>
+          {pwMessage && <p className="mt-2 text-sm text-gray-700">{pwMessage}</p>}
+        </div>
+        <div className="p-4 border border-gray-200 rounded-lg">
+          <h4 className="font-medium text-gray-900 mb-2">Two-Factor Authentication</h4>
+          <p className="text-sm text-gray-600 mb-3">Add an extra layer of security to your account</p>
+          <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors opacity-50 cursor-not-allowed" disabled>
+            Enable 2FA (Coming Soon)
           </button>
         </div>
         <div className="p-4 border border-gray-200 rounded-lg">
           <h4 className="font-medium text-gray-900 mb-2">Login Sessions</h4>
-          <p className="text-sm text-gray-600 mb-3">Manage your active login sessions</p>
-          <button className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
-            View Sessions
+          <p className="text-sm text-gray-600 mb-3">You are currently logged in from this device.</p>
+          <button
+            onClick={() => { AuthClient.logout(); setAuthMessage('Logged out from all sessions.'); }}
+            className="px-4 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors"
+          >
+            Logout All Sessions
           </button>
         </div>
       </div>
     </div>
   );
 
+  const exportTradeJournalCSV = async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/trade-setup/history?limit=500`);
+      const json = await res.json();
+      if (json.status !== 'success' || !json.data?.length) {
+        alert('No trade setups to export.');
+        return;
+      }
+      const rows = json.data as any[];
+      const headers = ['Symbol', 'Action', 'Type', 'Entry Price', 'Stop Loss', 'Target', 'Current Price', 'R:R', 'Confidence', 'Status', 'Screen', 'Reasoning', 'Created At'];
+      const csvLines = [
+        headers.join(','),
+        ...rows.map((r: any) => [
+          r.symbol, r.action, r.tradeType, r.entryPrice, r.stopLoss, r.target,
+          r.currentPrice || '', r.riskRewardRatio, r.confidence, r.status,
+          `"${(r.screenName || '').replace(/"/g, '""')}"`,
+          `"${(r.reasoning || '').replace(/"/g, '""')}"`,
+          new Date(r.createdAt).toLocaleString('en-IN'),
+        ].join(','))
+      ];
+      const blob = new Blob([csvLines.join('\n')], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `trade-journal-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert('Failed to export. Make sure the backend is running.');
+    }
+  };
+
+  const exportSettingsBackup = () => {
+    const backup = {
+      settings,
+      exportedAt: new Date().toISOString(),
+      version: '1.0',
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `dashboard-settings-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importSettingsBackup = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const data = JSON.parse(ev.target?.result as string);
+          if (data.settings) {
+            setSettings(data.settings);
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(data.settings));
+            setSaveMessage('Settings restored from backup!');
+            setTimeout(() => setSaveMessage(null), 3000);
+          }
+        } catch {
+          alert('Invalid backup file.');
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  };
+
   const renderDataSettings = () => (
     <div className="space-y-6">
       <h3 className="text-lg font-semibold text-gray-900">Data Management</h3>
       <div className="space-y-4">
         <div className="p-4 border border-gray-200 rounded-lg">
-          <h4 className="font-medium text-gray-900 mb-2">Export Portfolio Data</h4>
-          <p className="text-sm text-gray-600 mb-3">Download your portfolio and trading history</p>
+          <h4 className="font-medium text-gray-900 mb-2">Export Trade Journal</h4>
+          <p className="text-sm text-gray-600 mb-3">Download all your AI trade setups as a CSV spreadsheet</p>
+          <button onClick={exportTradeJournalCSV} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center">
+            <Download className="h-4 w-4 mr-2" />
+            Export Trade Journal CSV
+          </button>
+        </div>
+        <div className="p-4 border border-gray-200 rounded-lg">
+          <h4 className="font-medium text-gray-900 mb-2">Settings Backup</h4>
+          <p className="text-sm text-gray-600 mb-3">Backup or restore your dashboard settings and preferences</p>
           <div className="flex space-x-2">
-            <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center">
+            <button onClick={exportSettingsBackup} className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center">
               <Download className="h-4 w-4 mr-2" />
-              Export CSV
+              Export Settings
             </button>
-            <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center">
-              <Download className="h-4 w-4 mr-2" />
-              Export PDF
+            <button onClick={importSettingsBackup} className="px-4 py-2 border border-purple-300 text-purple-700 rounded-lg hover:bg-purple-50 transition-colors">
+              Import Settings
             </button>
           </div>
         </div>
-        <div className="p-4 border border-gray-200 rounded-lg">
-          <h4 className="font-medium text-gray-900 mb-2">Data Backup</h4>
-          <p className="text-sm text-gray-600 mb-3">Backup your settings and preferences</p>
-          <button className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
-            Create Backup
-          </button>
-        </div>
         <div className="p-4 border border-red-200 rounded-lg">
-          <h4 className="font-medium text-red-900 mb-2">Delete Account</h4>
-          <p className="text-sm text-red-600 mb-3">Permanently delete your account and all data</p>
-          <button className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors">
-            Delete Account
+          <h4 className="font-medium text-red-900 mb-2">Reset Settings</h4>
+          <p className="text-sm text-red-600 mb-3">Reset all dashboard settings to defaults</p>
+          <button
+            onClick={() => {
+              if (confirm('Reset all settings to defaults? This cannot be undone.')) {
+                setSettings(defaultSettings);
+                localStorage.removeItem(SETTINGS_KEY);
+                setSaveMessage('Settings reset to defaults.');
+                setTimeout(() => setSaveMessage(null), 3000);
+              }
+            }}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+          >
+            Reset to Defaults
           </button>
         </div>
       </div>
@@ -362,6 +640,7 @@ const SettingsTab = () => {
   const renderActiveSection = () => {
     switch (activeSection) {
       case 'profile': return renderProfileSettings();
+      case 'api-keys': return <APIKeysTab />;
       case 'notifications': return renderNotificationSettings();
       case 'trading': return renderTradingSettings();
       case 'display': return renderDisplaySettings();
@@ -408,13 +687,29 @@ const SettingsTab = () => {
           {renderActiveSection()}
           
           
-          <div className="mt-8 pt-6 border-t border-gray-200 flex space-x-3">
-            <button className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+          <div className="mt-8 pt-6 border-t border-gray-200 flex items-center space-x-3">
+            <button onClick={handleSaveAll} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center">
+              <Save className="h-4 w-4 mr-2" />
               Save Changes
             </button>
-            <button className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+            <button
+              onClick={() => {
+                try {
+                  const saved = localStorage.getItem(SETTINGS_KEY);
+                  if (saved) setSettings(JSON.parse(saved));
+                  else setSettings(defaultSettings);
+                } catch { setSettings(defaultSettings); }
+              }}
+              className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+            >
               Cancel
             </button>
+            {saveMessage && (
+              <span className="flex items-center text-sm text-green-600">
+                <CheckCircle className="h-4 w-4 mr-1" />
+                {saveMessage}
+              </span>
+            )}
           </div>
         </div>
       </div>

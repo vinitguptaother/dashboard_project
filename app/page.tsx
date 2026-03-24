@@ -3,16 +3,18 @@
 import { useState } from 'react';
 import Navigation from './components/Navigation';
 import Dashboard from './components/Dashboard';
-import IntradayTab from './components/IntradayTab';
-import SwingTradingTab from './components/SwingTradingTab';
-import LongTermTab from './components/LongTermTab';
+import HistoricalTab from './components/HistoricalTab';
 import PortfolioTab from './components/PortfolioTab';
+import UpstoxTab from './components/UpstoxTab';
+import AlertsTab from './components/AlertsTab';
 import AIAnalysisTab from './components/AIAnalysisTab';
 import StockSearchTab from './components/StockSearchTab';
 import NewsTab from './components/NewsTab';
-import ScreenerTab from './components/ScreenerTab';
+import ScreensTab from './components/ScreensTab';
 import APIIntegrationTab from './components/APIIntegrationTab';
 import SettingsTab from './components/SettingsTab';
+import TradeJournalTab from './components/TradeJournalTab';
+import PaperTradingTab from './components/PaperTradingTab';
 import AIChatbot from './components/AIChatbot';
 
 export default function Home() {
@@ -22,14 +24,14 @@ export default function Home() {
     switch (activeTab) {
       case 'dashboard':
         return <Dashboard />;
-      case 'intraday':
-        return <IntradayTab />;
-      case 'swing':
-        return <SwingTradingTab />;
-      case 'longterm':
-        return <LongTermTab />;
+      case 'historical':
+        return <HistoricalTab />;
       case 'portfolio':
         return <PortfolioTab />;
+      case 'upstox':
+        return <UpstoxTab />;
+      case 'alerts':
+        return <AlertsTab />;
       case 'ai-analysis':
         return <AIAnalysisTab />;
       case 'stock-search':
@@ -37,9 +39,13 @@ export default function Home() {
       case 'news':
         return <NewsTab />;
       case 'screener':
-        return <ScreenerTab />;
+        return <ScreensTab />;
       case 'api':
         return <APIIntegrationTab />;
+      case 'trade-journal':
+        return <TradeJournalTab />;
+      case 'paper-trading':
+        return <PaperTradingTab />;
       case 'settings':
         return <SettingsTab />;
       default:

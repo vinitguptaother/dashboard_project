@@ -191,7 +191,7 @@ class AlertService {
         if (storedNotifications) {
           this.notifications = JSON.parse(storedNotifications);
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error loading alerts/notifications from storage:', error);
       }
     }

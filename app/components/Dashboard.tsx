@@ -1,396 +1,337 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  DollarSign, 
-  Activity, 
-  Brain,
-  Target,
-  AlertTriangle,
-  CheckCircle,
-  Bell,
-  Plus
-} from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
-import { useMarketData, usePortfolios, useNotifications } from '../hooks/useRealTimeData';
+import { TrendingUp, TrendingDown, Layers, LineChart as LineChartIcon, Target, CheckCircle, XCircle, Clock, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import LiveIndexBar from './LiveIndexBar';
+import PositionSizer from './PositionSizer';
+import DailyPnLWidget from './DailyPnLWidget';
+
+const BACKEND_URL = 'http://localhost:5002';
+
+interface TopIdea {
+  symbol: string;
+  score: number;
+  lastPrice: number;
+  percentChange: number | null;
+}
+
+interface TopIdeasData {
+  batchDate: string;
+  screenName: string;
+  topIdeas: TopIdea[];
+}
+
+interface TradeSetupStats {
+  total: number;
+  active: number;
+  targetHit: number;
+  slHit: number;
+  expired: number;
+  cancelled: number;
+  winRate: number | null;
+}
+
+interface ActiveSetup {
+  _id: string;
+  symbol: string;
+  action: string;
+  tradeType: string;
+  entryPrice: number;
+  stopLoss: number;
+  target: number;
+  currentPrice: number | null;
+  confidence: number;
+  screenName: string | null;
+  createdAt: string;
+  status: string;
+}
 
 const Dashboard = () => {
-  const { marketData, isLoading: marketLoading } = useMarketData();
-  const { portfolios } = usePortfolios();
-  const { notifications, unreadCount, createPriceAlert } = useNotifications();
-  const [showAlertModal, setShowAlertModal] = useState(false);
-  const [alertForm, setAlertForm] = useState({
-    symbol: '',
-    targetPrice: '',
-    condition: 'above' as 'above' | 'below'
-  });
+  const [totalScreens, setTotalScreens] = useState<number>(0);
+  const [activeBatches, setActiveBatches] = useState<number>(0);
+  const [hitRate, setHitRate] = useState<number | null>(null);
+  const [topIdeasData, setTopIdeasData] = useState<TopIdeasData | null>(null);
+  const [topIdeasLoading, setTopIdeasLoading] = useState(true);
+  const [tradeStats, setTradeStats] = useState<TradeSetupStats | null>(null);
+  const [activeSetups, setActiveSetups] = useState<ActiveSetup[]>([]);
+  const [paperStats, setPaperStats] = useState<{ total: number; active: number; wins: number; losses: number; winRate: number | null; avgReturnPct: number | null } | null>(null);
 
-  const [aiRecommendations, setAiRecommendations] = useState([
-    {
-      symbol: 'RELIANCE',
-      action: 'BUY',
-      confidence: 85,
-      targetPrice: 2650,
-      currentPrice: 2485,
-      strategy: 'Swing Trading',
-      reason: 'Strong technical breakout with volume confirmation'
-    },
-    {
-      symbol: 'TCS',
-      action: 'HOLD',
-      confidence: 78,
-      targetPrice: 3850,
-      currentPrice: 3720,
-      strategy: 'Long Term',
-      reason: 'Solid fundamentals, awaiting Q3 results'
-    },
-    {
-      symbol: 'HDFC BANK',
-      action: 'BUY',
-      confidence: 92,
-      targetPrice: 1680,
-      currentPrice: 1545,
-      strategy: 'Intraday',
-      reason: 'Oversold conditions with RSI divergence'
-    }
-  ]);
-
-  const [chartData, setChartData] = useState([
-    { time: '9:15', nifty: 19720, volume: 1200 },
-    { time: '10:00', nifty: 19745, volume: 1850 },
-    { time: '11:00', nifty: 19780, volume: 2100 },
-    { time: '12:00', nifty: 19825, volume: 1950 },
-    { time: '13:00', nifty: 19810, volume: 1750 },
-    { time: '14:00', nifty: 19840, volume: 2200 },
-    { time: '15:00', nifty: 19850, volume: 2500 }
-  ]);
-
-  // Update chart data when market data changes
   useEffect(() => {
-    if (marketData) {
-      const currentTime = new Date().toLocaleTimeString('en-US', { 
-        hour12: false, 
-        hour: '2-digit', 
-        minute: '2-digit' 
-      });
-      
-      setChartData(prev => {
-        const newData = [...prev];
-        if (newData.length >= 20) {
-          newData.shift(); // Remove oldest data point
+    const fetchStats = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/screens/stats`);
+        const json = await res.json();
+        if (json.status === 'success' && json.data) {
+          setTotalScreens(json.data.totalScreens);
+          setActiveBatches(json.data.activeBatches);
+          setHitRate(json.data.hitRate);
         }
-        newData.push({
-          time: currentTime,
-          nifty: Math.round(marketData.nifty.price),
-          volume: Math.round(marketData.nifty.volume / 1000)
-        });
-        return newData;
-      });
-    }
-  }, [marketData]);
+      } catch (err: any) {
+        // Warn only — backend may not be running
+        console.warn('Dashboard: screens/stats unavailable', err?.message || '');
+      }
+    };
 
-  const portfolioData = portfolios.length > 0 ? [
-    { name: 'Equity', value: portfolios.reduce((sum, p) => sum + p.currentValue, 0) * 0.75, allocation: 75 },
-    { name: 'Debt', value: portfolios.reduce((sum, p) => sum + p.currentValue, 0) * 0.15, allocation: 15 },
-    { name: 'Cash', value: portfolios.reduce((sum, p) => sum + p.currentValue, 0) * 0.10, allocation: 10 }
-  ] : [
-    { name: 'Equity', value: 750000, allocation: 75 },
-    { name: 'Debt', value: 150000, allocation: 15 },
-    { name: 'Cash', value: 100000, allocation: 10 }
-  ];
+    const fetchTopIdeas = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/screens/top-ideas`);
+        const json = await res.json();
+        if (json.status === 'success') {
+          setTopIdeasData(json.data);
+        }
+      } catch (err: any) {
+        console.warn('Dashboard: top-ideas unavailable', err?.message || '');
+      } finally {
+        setTopIdeasLoading(false);
+      }
+    };
 
-  const handleCreateAlert = () => {
-    if (alertForm.symbol && alertForm.targetPrice) {
-      createPriceAlert(
-        alertForm.symbol.toUpperCase(),
-        parseFloat(alertForm.targetPrice),
-        alertForm.condition
-      );
-      setAlertForm({ symbol: '', targetPrice: '', condition: 'above' });
-      setShowAlertModal(false);
-    }
-  };
+    const fetchTradeStats = async () => {
+      try {
+        const [statsRes, activeRes] = await Promise.all([
+          fetch(`${BACKEND_URL}/api/trade-setup/stats`),
+          fetch(`${BACKEND_URL}/api/trade-setup/active`),
+        ]);
+        const statsJson = await statsRes.json();
+        const activeJson = await activeRes.json();
+        if (statsJson.status === 'success') setTradeStats(statsJson.data);
+        if (activeJson.status === 'success') setActiveSetups(activeJson.data);
+      } catch (err: any) {
+        console.warn('Dashboard: trade-setup unavailable', err?.message || '');
+      }
+    };
 
-  if (marketLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
+    const fetchPaperStats = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/trade-setup/paper-stats`);
+        const json = await res.json();
+        if (json.status === 'success') setPaperStats(json.data);
+      } catch (err: any) {
+        console.warn('Dashboard: paper-stats unavailable', err?.message || '');
+      }
+    };
+
+    fetchStats();
+    fetchTopIdeas();
+    fetchTradeStats();
+    fetchPaperStats();
+  }, []);
 
   return (
     <div className="space-y-6 slide-in">
-      {/* Header */}
-      <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">AI-Powered Market Dashboard</h1>
-        <p className="text-gray-600">Real-time insights and intelligent recommendations for Indian markets</p>
-        
-        {/* Notifications Badge */}
-        {unreadCount > 0 && (
-          <div className="mt-4 flex justify-center">
-            <div className="bg-red-100 border border-red-300 rounded-lg px-4 py-2 flex items-center space-x-2">
-              <Bell className="h-4 w-4 text-red-600" />
-              <span className="text-red-800 text-sm font-medium">
-                {unreadCount} new notification{unreadCount > 1 ? 's' : ''}
-              </span>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Live Index Bar - Keep exactly as is */}
+      <LiveIndexBar pollMs={5000} />
 
-      {/* Market Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="glass-effect rounded-xl p-6 shadow-lg">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">NIFTY 50</p>
-              <p className="text-2xl font-bold text-gray-900">
-                ₹{marketData?.nifty.price.toLocaleString() || '19,850.25'}
-              </p>
-            </div>
-            <div className={`flex items-center space-x-1 ${
-              (marketData?.nifty.change || 125.30) > 0 ? 'text-green-600' : 'text-red-600'
-            }`}>
-              {(marketData?.nifty.change || 125.30) > 0 ? 
-                <TrendingUp className="h-5 w-5" /> : 
-                <TrendingDown className="h-5 w-5" />
-              }
-              <span className="font-semibold">
-                {(marketData?.nifty.change || 125.30) > 0 ? '+' : ''}
-                {marketData?.nifty.change.toFixed(2) || '125.30'} (
-                {(marketData?.nifty.changePercent || 0.63) > 0 ? '+' : ''}
-                {marketData?.nifty.changePercent.toFixed(2) || '0.63'}%)
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="glass-effect rounded-xl p-6 shadow-lg">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">SENSEX</p>
-              <p className="text-2xl font-bold text-gray-900">
-                ₹{marketData?.sensex.price.toLocaleString() || '66,589.93'}
-              </p>
-            </div>
-            <div className={`flex items-center space-x-1 ${
-              (marketData?.sensex.change || 418.60) > 0 ? 'text-green-600' : 'text-red-600'
-            }`}>
-              {(marketData?.sensex.change || 418.60) > 0 ? 
-                <TrendingUp className="h-5 w-5" /> : 
-                <TrendingDown className="h-5 w-5" />
-              }
-              <span className="font-semibold">
-                {(marketData?.sensex.change || 418.60) > 0 ? '+' : ''}
-                {marketData?.sensex.change.toFixed(2) || '418.60'} (
-                {(marketData?.sensex.changePercent || 0.63) > 0 ? '+' : ''}
-                {marketData?.sensex.changePercent.toFixed(2) || '0.63'}%)
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="glass-effect rounded-xl p-6 shadow-lg">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">BANK NIFTY</p>
-              <p className="text-2xl font-bold text-gray-900">
-                ₹{marketData?.bankNifty.price.toLocaleString() || '44,892.15'}
-              </p>
-            </div>
-            <div className={`flex items-center space-x-1 ${
-              (marketData?.bankNifty.change || -89.25) > 0 ? 'text-green-600' : 'text-red-600'
-            }`}>
-              {(marketData?.bankNifty.change || -89.25) > 0 ? 
-                <TrendingUp className="h-5 w-5" /> : 
-                <TrendingDown className="h-5 w-5" />
-              }
-              <span className="font-semibold">
-                {marketData?.bankNifty.change.toFixed(2) || '-89.25'} (
-                {marketData?.bankNifty.changePercent.toFixed(2) || '-0.20'}%)
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="glass-effect rounded-xl p-6 shadow-lg">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 flex items-center">
-              <Activity className="h-5 w-5 mr-2 text-blue-600" />
-              NIFTY Live Chart
-            </h3>
-            <button
-              onClick={() => setShowAlertModal(true)}
-              className="flex items-center space-x-1 px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Alert</span>
-            </button>
-          </div>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="time" />
-              <YAxis />
-              <Tooltip />
-              <Line type="monotone" dataKey="nifty" stroke="#2563eb" strokeWidth={2} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="glass-effect rounded-xl p-6 shadow-lg">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-            <DollarSign className="h-5 w-5 mr-2 text-green-600" />
-            Portfolio Allocation
-          </h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={portfolioData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip formatter={(value) => [`₹${value.toLocaleString()}`, 'Value']} />
-              <Bar dataKey="value" fill="#059669" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* AI Recommendations */}
+      {/* Section A: Today's Top Ideas */}
       <div className="glass-effect rounded-xl p-6 shadow-lg">
         <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-          <Brain className="h-5 w-5 mr-2 text-purple-600" />
-          AI-Powered Recommendations
+          <LineChartIcon className="h-5 w-5 mr-2 text-blue-600" />
+          Today&apos;s Top Ideas
+          {topIdeasData && (
+            <span className="ml-2 text-xs font-normal text-gray-400">
+              {topIdeasData.screenName} &middot; {new Date(topIdeasData.batchDate).toLocaleDateString()}
+            </span>
+          )}
         </h3>
-        <div className="space-y-4">
-          {aiRecommendations.map((rec, index) => (
-            <div key={index} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center space-x-3">
-                  <span className="font-bold text-lg text-gray-900">{rec.symbol}</span>
-                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                    rec.action === 'BUY' ? 'bg-green-100 text-green-800' :
-                    rec.action === 'SELL' ? 'bg-red-100 text-red-800' :
-                    'bg-yellow-100 text-yellow-800'
-                  }`}>
-                    {rec.action}
-                  </span>
-                  <span className="text-sm text-gray-600">{rec.strategy}</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <div className="flex items-center space-x-1">
-                    <Target className="h-4 w-4 text-blue-600" />
-                    <span className="text-sm font-medium">Confidence: {rec.confidence}%</span>
-                  </div>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                <div>
-                  <span className="text-gray-600">Current Price: </span>
-                  <span className="font-semibold">₹{rec.currentPrice}</span>
-                </div>
-                <div>
-                  <span className="text-gray-600">Target Price: </span>
-                  <span className="font-semibold text-green-600">₹{rec.targetPrice}</span>
-                </div>
-                <div>
-                  <span className="text-gray-600">Potential: </span>
-                  <span className="font-semibold text-blue-600">
-                    {((rec.targetPrice - rec.currentPrice) / rec.currentPrice * 100).toFixed(1)}%
-                  </span>
-                </div>
-              </div>
-              <p className="text-sm text-gray-700 mt-2">{rec.reason}</p>
-            </div>
-          ))}
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  #
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Symbol
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Score
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Price
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  % Change
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {topIdeasLoading ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-8 text-center text-sm text-gray-400">
+                    Loading…
+                  </td>
+                </tr>
+              ) : !topIdeasData || topIdeasData.topIdeas.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-8 text-center text-sm text-gray-500">
+                    Run your first screen to see today&apos;s top ideas.
+                  </td>
+                </tr>
+              ) : (
+                topIdeasData.topIdeas.map((idea, idx) => (
+                  <tr key={idea.symbol} className="hover:bg-gray-50">
+                    <td className="px-6 py-3 text-sm font-medium text-gray-700">{idx + 1}</td>
+                    <td className="px-6 py-3 text-sm font-semibold text-gray-900">{idea.symbol}</td>
+                    <td className="px-6 py-3 text-sm text-gray-700">{idea.score.toFixed(2)}</td>
+                    <td className="px-6 py-3 text-sm text-gray-700">₹{idea.lastPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td className={`px-6 py-3 text-sm font-medium ${
+                      idea.percentChange != null && idea.percentChange > 0
+                        ? 'text-green-600'
+                        : idea.percentChange != null && idea.percentChange < 0
+                          ? 'text-red-600'
+                          : 'text-gray-500'
+                    }`}>
+                      {idea.percentChange != null ? `${idea.percentChange > 0 ? '+' : ''}${idea.percentChange.toFixed(2)}%` : '–'}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
-      {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="glass-effect rounded-lg p-4 text-center">
-          <CheckCircle className="h-8 w-8 text-green-600 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-gray-900">{portfolios.length}</p>
-          <p className="text-sm text-gray-600">Active Portfolios</p>
+      {/* Section B: Stat Tiles */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+        <div className="glass-effect rounded-xl p-5 shadow-lg text-center">
+          <Layers className="h-7 w-7 text-blue-600 mx-auto mb-2" />
+          <p className="text-2xl font-bold text-gray-900">{totalScreens}</p>
+          <p className="text-xs text-gray-600 mt-1">Total Screens</p>
         </div>
-        <div className="glass-effect rounded-lg p-4 text-center">
-          <TrendingUp className="h-8 w-8 text-blue-600 mx-auto mb-2" />
+        <div className="glass-effect rounded-xl p-5 shadow-lg text-center">
+          <TrendingUp className="h-7 w-7 text-green-600 mx-auto mb-2" />
+          <p className="text-2xl font-bold text-gray-900">{activeBatches}</p>
+          <p className="text-xs text-gray-600 mt-1">Active Batches</p>
+        </div>
+        <div className="glass-effect rounded-xl p-5 shadow-lg text-center">
+          <TrendingDown className="h-7 w-7 text-purple-600 mx-auto mb-2" />
+          <p className="text-2xl font-bold text-gray-900">{hitRate != null ? `${hitRate}%` : '–'}</p>
+          <p className="text-xs text-gray-600 mt-1">3-Month Hit Rate</p>
+        </div>
+        <div className="glass-effect rounded-xl p-5 shadow-lg text-center">
+          <Target className="h-7 w-7 text-orange-600 mx-auto mb-2" />
           <p className="text-2xl font-bold text-gray-900">
-            {portfolios.length > 0 ? 
-              `${(portfolios.reduce((sum, p) => sum + p.totalPnLPercent, 0) / portfolios.length).toFixed(1)}%` : 
-              '+8.5%'
-            }
+            {tradeStats?.winRate != null ? `${tradeStats.winRate}%` : '–'}
           </p>
-          <p className="text-sm text-gray-600">Avg Portfolio Return</p>
+          <p className="text-xs text-gray-600 mt-1">AI Setup Win Rate</p>
         </div>
-        <div className="glass-effect rounded-lg p-4 text-center">
-          <AlertTriangle className="h-8 w-8 text-yellow-600 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-gray-900">{unreadCount}</p>
-          <p className="text-sm text-gray-600">Active Alerts</p>
+        <div className="glass-effect rounded-xl p-5 shadow-lg text-center">
+          <Target className="h-7 w-7 text-indigo-600 mx-auto mb-2" />
+          <p className="text-2xl font-bold text-gray-900">{paperStats?.active ?? 0}</p>
+          <p className="text-xs text-gray-600 mt-1">Paper Trades Active</p>
+          {paperStats && (paperStats.wins > 0 || paperStats.losses > 0) && (
+            <p className="text-xs text-gray-400 mt-0.5">{paperStats.wins}W / {paperStats.losses}L</p>
+          )}
         </div>
-        <div className="glass-effect rounded-lg p-4 text-center">
-          <Brain className="h-8 w-8 text-purple-600 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-gray-900">89%</p>
-          <p className="text-sm text-gray-600">AI Accuracy</p>
+        <div className="glass-effect rounded-xl p-5 shadow-lg text-center">
+          <CheckCircle className={`h-7 w-7 mx-auto mb-2 ${paperStats?.winRate != null && paperStats.winRate >= 50 ? 'text-green-600' : 'text-red-500'}`} />
+          <p className={`text-2xl font-bold ${paperStats?.winRate != null && paperStats.winRate >= 50 ? 'text-green-600' : paperStats?.winRate != null ? 'text-red-600' : 'text-gray-900'}`}>
+            {paperStats?.winRate != null ? `${paperStats.winRate}%` : '–'}
+          </p>
+          <p className="text-xs text-gray-600 mt-1">Paper Win Rate</p>
+          {paperStats?.avgReturnPct != null && (
+            <p className={`text-xs mt-0.5 ${paperStats.avgReturnPct >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+              Avg {paperStats.avgReturnPct > 0 ? '+' : ''}{paperStats.avgReturnPct}%
+            </p>
+          )}
         </div>
       </div>
 
-      {/* Price Alert Modal */}
-      {showAlertModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="glass-effect rounded-xl p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Create Price Alert</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Stock Symbol</label>
-                <input
-                  type="text"
-                  value={alertForm.symbol}
-                  onChange={(e) => setAlertForm({...alertForm, symbol: e.target.value})}
-                  className="w-full p-3 border border-gray-300 rounded-lg"
-                  placeholder="e.g., RELIANCE"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Target Price (₹)</label>
-                <input
-                  type="number"
-                  value={alertForm.targetPrice}
-                  onChange={(e) => setAlertForm({...alertForm, targetPrice: e.target.value})}
-                  className="w-full p-3 border border-gray-300 rounded-lg"
-                  placeholder="Enter target price"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Condition</label>
-                <select
-                  value={alertForm.condition}
-                  onChange={(e) => setAlertForm({...alertForm, condition: e.target.value as 'above' | 'below'})}
-                  className="w-full p-3 border border-gray-300 rounded-lg"
-                >
-                  <option value="above">Price goes above</option>
-                  <option value="below">Price goes below</option>
-                </select>
-              </div>
+      {/* Section B2: Daily P&L + Position Sizer side by side on desktop */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <DailyPnLWidget />
+        <PositionSizer />
+      </div>
+
+      {/* Section C: Active Trade Setups Tracker */}
+      {activeSetups.length > 0 && (
+        <div className="glass-effect rounded-xl p-6 shadow-lg border-2 border-orange-200">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+              <Target className="h-5 w-5 mr-2 text-orange-600" />
+              Active Trade Setups
+              <span className="ml-2 text-xs font-normal text-gray-400">
+                {activeSetups.length} active &middot; {tradeStats?.targetHit || 0} wins &middot; {tradeStats?.slHit || 0} losses
+              </span>
+            </h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Symbol</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Entry</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Current</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">SL</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Target</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">P&L %</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Screen</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {activeSetups.map((setup) => {
+                  const pnl = setup.currentPrice && setup.entryPrice > 0
+                    ? ((setup.currentPrice - setup.entryPrice) / setup.entryPrice) * 100 * (setup.action === 'SELL' ? -1 : 1)
+                    : null;
+                  return (
+                    <tr key={setup._id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm font-semibold text-gray-900">{setup.symbol}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
+                          setup.action === 'BUY' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                        }`}>{setup.action}</span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right text-gray-700">₹{setup.entryPrice.toLocaleString('en-IN')}</td>
+                      <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
+                        {setup.currentPrice ? `₹${setup.currentPrice.toLocaleString('en-IN')}` : '–'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right text-red-600">₹{setup.stopLoss.toLocaleString('en-IN')}</td>
+                      <td className="px-4 py-3 text-sm text-right text-green-600">₹{setup.target.toLocaleString('en-IN')}</td>
+                      <td className={`px-4 py-3 text-sm text-right font-semibold ${
+                        pnl != null ? (pnl > 0 ? 'text-green-600' : pnl < 0 ? 'text-red-600' : 'text-gray-500') : 'text-gray-400'
+                      }`}>
+                        {pnl != null ? `${pnl > 0 ? '+' : ''}${pnl.toFixed(2)}%` : '–'}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-500 truncate max-w-[120px]" title={setup.screenName || ''}>
+                        {setup.screenName || '–'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Trade Setup Summary (when no active but has history) */}
+      {activeSetups.length === 0 && tradeStats && tradeStats.total > 0 && (
+        <div className="glass-effect rounded-xl p-6 shadow-lg">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+            <Target className="h-5 w-5 mr-2 text-orange-600" />
+            Trade Setup Summary
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+            <div>
+              <CheckCircle className="h-6 w-6 text-green-500 mx-auto mb-1" />
+              <p className="text-xl font-bold text-green-600">{tradeStats.targetHit}</p>
+              <p className="text-xs text-gray-500">Targets Hit</p>
             </div>
-            <div className="flex space-x-3 mt-6">
-              <button 
-                onClick={() => setShowAlertModal(false)}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleCreateAlert}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Create Alert
-              </button>
+            <div>
+              <XCircle className="h-6 w-6 text-red-500 mx-auto mb-1" />
+              <p className="text-xl font-bold text-red-600">{tradeStats.slHit}</p>
+              <p className="text-xs text-gray-500">Stop Losses Hit</p>
+            </div>
+            <div>
+              <Clock className="h-6 w-6 text-gray-400 mx-auto mb-1" />
+              <p className="text-xl font-bold text-gray-600">{tradeStats.expired}</p>
+              <p className="text-xs text-gray-500">Expired</p>
+            </div>
+            <div>
+              <Target className="h-6 w-6 text-orange-500 mx-auto mb-1" />
+              <p className="text-xl font-bold text-orange-600">{tradeStats.winRate != null ? `${tradeStats.winRate}%` : '–'}</p>
+              <p className="text-xs text-gray-500">Win Rate</p>
             </div>
           </div>
         </div>

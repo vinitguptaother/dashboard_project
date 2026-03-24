@@ -1,0 +1,32 @@
+{
+  "name": "upstox-cli-dashboard",
+  "version": "1.0.0",
+  "description": "Upstox Portfolio Dashboard for Warp CLI",
+  "type": "module",
+  "scripts": {
+    "start": "tsx upstox_dashboard.ts",
+    "server": "tsx server.ts",
+    "watch": "tsx watch upstox_dashboard.ts",
+    "build": "tsc",
+    "dev": "tsx --watch upstox_dashboard.ts"
+  },
+  "keywords": [
+    "upstox",
+    "cli",
+    "dashboard",
+    "trading"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.6",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}

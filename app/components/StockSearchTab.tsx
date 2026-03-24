@@ -1,273 +1,190 @@
 'use client';
 
-import { useState } from 'react';
-import { Search, TrendingUp, TrendingDown, BarChart3, Calendar, Target, AlertCircle, Star, Activity } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import {
+  Search, TrendingUp, TrendingDown, BarChart3, Calendar, Target,
+  AlertCircle, Star, Activity, Shield, Zap, ArrowUpRight, ArrowDownRight,
+  Clock, ChevronDown, ChevronUp, RefreshCw, Brain, Newspaper, LineChart
+} from 'lucide-react';
+import { ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 
-interface StockData {
-  symbol: string;
-  companyName: string;
+// ─── Types ─────────────────────────────────────────────────────────────────────
+
+interface PriceData {
   currentPrice: number;
   change: number;
   changePercent: number;
-  marketCap: string;
+  dayHigh: number;
+  dayLow: number;
+  previousClose: number;
+  open: number;
+  volume: number;
+  avgVolume: number;
+  marketCap: number;
+  marketCapFormatted: string;
+  fiftyTwoWeekHigh: number;
+  fiftyTwoWeekLow: number;
+  companyName: string;
   sector: string;
   industry: string;
-  lastUpdated: string;
-  fundamentals: {
-    [key: string]: number | string;
-  };
-  technical: {
-    [key: string]: number | string;
-  };
-  other: {
-    [key: string]: number | string;
-  };
+  exchange: string;
 }
+
+interface NewsItem {
+  headline: string;
+  summary: string;
+  sentiment: 'Positive' | 'Negative' | 'Neutral';
+  date: string;
+  source: string;
+}
+
+interface Recommendation {
+  action: 'BUY' | 'SELL' | 'HOLD' | 'ACCUMULATE';
+  confidence: number;
+  entryPrice: number;
+  targetPrice: number;
+  stopLoss: number;
+  timeframe: string;
+  riskReward: string;
+  reasoning: string;
+  risks: string[];
+  catalysts: string[];
+}
+
+interface StockAnalysis {
+  symbol: string;
+  price: PriceData;
+  fundamentals: Record<string, string>;
+  technicals: Record<string, string>;
+  news: NewsItem[];
+  recommendation: Recommendation | null;
+  analyzedAt: string;
+}
+
+interface SearchResult {
+  symbol: string;
+  name: string;
+  exchange: string;
+  price: number | null;
+  change: number | null;
+  changePercent: number | null;
+}
+
+// ─── Helper ────────────────────────────────────────────────────────────────────
+
+const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5002';
+
+function formatINR(n: number): string {
+  if (!n || n === 0) return '₹0';
+  if (n >= 1e12) return `₹${(n / 1e12).toFixed(2)}T`;
+  if (n >= 1e7) return `₹${(n / 1e7).toFixed(2)}Cr`;
+  if (n >= 1e5) return `₹${(n / 1e5).toFixed(2)}L`;
+  return `₹${n.toLocaleString('en-IN')}`;
+}
+
+// ─── Component ─────────────────────────────────────────────────────────────────
 
 const StockSearchTab = () => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<StockData[]>([]);
-  const [selectedStock, setSelectedStock] = useState<StockData | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [analysis, setAnalysis] = useState<StockAnalysis | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
+  const [stockTimeframe, setStockTimeframe] = useState<'1D' | '1W' | '1M' | '3M' | '6M' | '1Y'>('1M');
+  const [chartData, setChartData] = useState<{ time: string; price: number; volume: number }[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  // Mock stock database
-  const stockDatabase: StockData[] = [
-    {
-      symbol: 'RELIANCE',
-      companyName: 'Reliance Industries Limited',
-      currentPrice: 2485.75,
-      change: 35.20,
-      changePercent: 1.44,
-      marketCap: '16.8L Cr',
-      sector: 'Oil & Gas',
-      industry: 'Refineries',
-      lastUpdated: '2 minutes ago',
-      fundamentals: {
-        'Revenue growth (YoY)': 12.5,
-        'Revenue growth (QoQ)': 8.2,
-        'Profit margin': 8.7,
-        'Earnings per share (EPS)': 98.5,
-        'Price-to-earnings (PE) ratio': 24.8,
-        'Price/Book ratio': 2.1,
-        'PEG ratio (PE / EPS growth)': 1.8,
-        'Return on Equity (ROE)': 15.2,
-        'Return on Capital Employed (ROCE)': 12.8,
-        'Free Cash Flow (FCF)': '45,000 Cr',
-        'Debt-to-Equity ratio': 0.35,
-        'Interest Coverage ratio': 8.5,
-        'Dividend Yield': 0.8,
-        'Promoter Holding %': 50.3,
-        'Institutional Holding %': 25.7,
-        'Operating Margin': 12.4,
-        'Net Profit Margin': 8.7,
-        'Book Value per Share': 1180,
-        'Sales Growth': 15.2,
-        'Consistency of Earnings': 'High',
-        'Corporate Governance': 'Good'
-      },
-      technical: {
-        'Price trends (Higher highs/lows)': 'Bullish',
-        'Moving averages (20, 50, 200 EMA/SMA)': '20: 2420, 50: 2380, 200: 2250',
-        'VWAP (Volume Weighted Average Price)': 2465,
-        'RSI (Relative Strength Index)': 65,
-        'MACD (Moving Average Convergence Divergence)': 'Bullish',
-        'Bollinger Bands': 'Upper: 2520, Lower: 2380',
-        'Stochastic Oscillator': 72,
-        'Volume spikes': 'Above Average',
-        'Average True Range (ATR)': 45.2,
-        'Support and resistance levels': 'Support: 2400, Resistance: 2550',
-        'Breakouts & pullbacks': 'Recent breakout',
-        'Candlestick patterns': 'Bullish Engulfing',
-        'Gap up/gap down': 'Gap up 1.2%',
-        'Beta (Volatility relative to market)': 1.2,
-        'Fibonacci levels': '61.8%: 2420, 38.2%: 2380',
-        'Trendlines and channels': 'Ascending channel'
-      },
-      other: {
-        'Liquidity / Daily Trading Volume': '2.5M shares',
-        'Volatility': 'Medium',
-        'News sentiment': 'Positive',
-        'Earnings dates / upcoming events': 'Q3 Results: Jan 15',
-        'FII/DII activity': 'FII: Buying, DII: Neutral',
-        'Sector strength and rotation': 'Strong',
-        'Correlation with market/index': 0.85,
-        'Momentum (price & volume)': 'Strong',
-        'Technical breakouts (with volume confirmation)': 'Yes',
-        'Pre-market or after-market movements': '+0.8%',
-        'Open interest and option chain data': 'High OI at 2500 CE',
-        'Insider buying/selling trends': 'Neutral',
-        'Management commentary and outlook': 'Positive',
-        'Macroeconomic indicators (interest rates, inflation, etc.)': 'Favorable',
-        'Moat / Competitive advantage (long-term only)': 'Strong'
-      }
-    },
-    {
-      symbol: 'TCS',
-      companyName: 'Tata Consultancy Services Limited',
-      currentPrice: 3720.45,
-      change: -25.80,
-      changePercent: -0.69,
-      marketCap: '13.5L Cr',
-      sector: 'Information Technology',
-      industry: 'IT Services',
-      lastUpdated: '1 minute ago',
-      fundamentals: {
-        'Revenue growth (YoY)': 8.4,
-        'Revenue growth (QoQ)': 2.1,
-        'Profit margin': 24.2,
-        'Earnings per share (EPS)': 125.8,
-        'Price-to-earnings (PE) ratio': 29.6,
-        'Price/Book ratio': 12.5,
-        'PEG ratio (PE / EPS growth)': 3.5,
-        'Return on Equity (ROE)': 42.8,
-        'Return on Capital Employed (ROCE)': 48.5,
-        'Free Cash Flow (FCF)': '38,500 Cr',
-        'Debt-to-Equity ratio': 0.02,
-        'Interest Coverage ratio': 185.2,
-        'Dividend Yield': 3.2,
-        'Promoter Holding %': 72.3,
-        'Institutional Holding %': 15.8,
-        'Operating Margin': 25.8,
-        'Net Profit Margin': 24.2,
-        'Book Value per Share': 298,
-        'Sales Growth': 8.4,
-        'Consistency of Earnings': 'Very High',
-        'Corporate Governance': 'Excellent'
-      },
-      technical: {
-        'Price trends (Higher highs/lows)': 'Neutral',
-        'Moving averages (20, 50, 200 EMA/SMA)': '20: 3750, 50: 3680, 200: 3580',
-        'VWAP (Volume Weighted Average Price)': 3735,
-        'RSI (Relative Strength Index)': 45,
-        'MACD (Moving Average Convergence Divergence)': 'Bearish',
-        'Bollinger Bands': 'Upper: 3820, Lower: 3620',
-        'Stochastic Oscillator': 38,
-        'Volume spikes': 'Below Average',
-        'Average True Range (ATR)': 68.5,
-        'Support and resistance levels': 'Support: 3650, Resistance: 3800',
-        'Breakouts & pullbacks': 'Consolidation',
-        'Candlestick patterns': 'Doji',
-        'Gap up/gap down': 'No gap',
-        'Beta (Volatility relative to market)': 0.8,
-        'Fibonacci levels': '61.8%: 3680, 38.2%: 3750',
-        'Trendlines and channels': 'Sideways channel'
-      },
-      other: {
-        'Liquidity / Daily Trading Volume': '1.8M shares',
-        'Volatility': 'Low',
-        'News sentiment': 'Neutral',
-        'Earnings dates / upcoming events': 'Q3 Results: Jan 10',
-        'FII/DII activity': 'FII: Selling, DII: Buying',
-        'Sector strength and rotation': 'Weak',
-        'Correlation with market/index': 0.72,
-        'Momentum (price & volume)': 'Weak',
-        'Technical breakouts (with volume confirmation)': 'No',
-        'Pre-market or after-market movements': '-0.3%',
-        'Open interest and option chain data': 'High OI at 3700 PE',
-        'Insider buying/selling trends': 'Neutral',
-        'Management commentary and outlook': 'Cautious',
-        'Macroeconomic indicators (interest rates, inflation, etc.)': 'Challenging',
-        'Moat / Competitive advantage (long-term only)': 'Very Strong'
-      }
-    },
-    {
-      symbol: 'HDFC',
-      companyName: 'HDFC Bank Limited',
-      currentPrice: 1545.30,
-      change: 18.75,
-      changePercent: 1.23,
-      marketCap: '11.8L Cr',
-      sector: 'Financial Services',
-      industry: 'Private Sector Bank',
-      lastUpdated: '3 minutes ago',
-      fundamentals: {
-        'Revenue growth (YoY)': 18.5,
-        'Revenue growth (QoQ)': 4.2,
-        'Profit margin': 22.8,
-        'Earnings per share (EPS)': 83.2,
-        'Price-to-earnings (PE) ratio': 18.6,
-        'Price/Book ratio': 2.8,
-        'PEG ratio (PE / EPS growth)': 1.0,
-        'Return on Equity (ROE)': 16.8,
-        'Return on Capital Employed (ROCE)': 2.1,
-        'Free Cash Flow (FCF)': 'N/A',
-        'Debt-to-Equity ratio': 6.8,
-        'Interest Coverage ratio': 'N/A',
-        'Dividend Yield': 1.2,
-        'Promoter Holding %': 0.0,
-        'Institutional Holding %': 78.5,
-        'Operating Margin': 'N/A',
-        'Net Profit Margin': 22.8,
-        'Book Value per Share': 552,
-        'Sales Growth': 18.5,
-        'Consistency of Earnings': 'High',
-        'Corporate Governance': 'Excellent'
-      },
-      technical: {
-        'Price trends (Higher highs/lows)': 'Bullish',
-        'Moving averages (20, 50, 200 EMA/SMA)': '20: 1520, 50: 1485, 200: 1420',
-        'VWAP (Volume Weighted Average Price)': 1535,
-        'RSI (Relative Strength Index)': 68,
-        'MACD (Moving Average Convergence Divergence)': 'Bullish',
-        'Bollinger Bands': 'Upper: 1580, Lower: 1480',
-        'Stochastic Oscillator': 75,
-        'Volume spikes': 'High',
-        'Average True Range (ATR)': 32.5,
-        'Support and resistance levels': 'Support: 1500, Resistance: 1580',
-        'Breakouts & pullbacks': 'Breakout confirmed',
-        'Candlestick patterns': 'Hammer',
-        'Gap up/gap down': 'Gap up 0.8%',
-        'Beta (Volatility relative to market)': 1.1,
-        'Fibonacci levels': '61.8%: 1510, 38.2%: 1540',
-        'Trendlines and channels': 'Uptrend'
-      },
-      other: {
-        'Liquidity / Daily Trading Volume': '3.2M shares',
-        'Volatility': 'Medium',
-        'News sentiment': 'Positive',
-        'Earnings dates / upcoming events': 'Q3 Results: Jan 18',
-        'FII/DII activity': 'FII: Buying, DII: Buying',
-        'Sector strength and rotation': 'Strong',
-        'Correlation with market/index': 0.88,
-        'Momentum (price & volume)': 'Strong',
-        'Technical breakouts (with volume confirmation)': 'Yes',
-        'Pre-market or after-market movements': '+1.1%',
-        'Open interest and option chain data': 'High OI at 1550 CE',
-        'Insider buying/selling trends': 'Neutral',
-        'Management commentary and outlook': 'Optimistic',
-        'Macroeconomic indicators (interest rates, inflation, etc.)': 'Favorable',
-        'Moat / Competitive advantage (long-term only)': 'Very Strong'
-      }
-    }
-  ];
-
-  const handleSearch = (query: string) => {
+  // ── Search stocks ──────────────────────────────────────────────────────────
+  const handleSearch = async (query: string) => {
     setSearchQuery(query);
-    if (query.length > 0) {
-      setIsLoading(true);
-      // Simulate API call delay
-      setTimeout(() => {
-        const results = stockDatabase.filter(stock => 
-          stock.symbol.toLowerCase().includes(query.toLowerCase()) ||
-          stock.companyName.toLowerCase().includes(query.toLowerCase())
-        );
-        setSearchResults(results);
-        setIsLoading(false);
-      }, 500);
-    } else {
+    if (query.trim().length < 1) {
       setSearchResults([]);
+      return;
+    }
+    setIsSearching(true);
+    try {
+      const resp = await fetch(`${BACKEND}/api/market/search/${encodeURIComponent(query.trim())}`);
+      if (!resp.ok) { setSearchResults([]); return; }
+      const json = await resp.json();
+      const results = (json?.data?.results || []).map((r: any) => ({
+        symbol: r.symbol,
+        name: r.name || r.symbol,
+        exchange: r.exchange || 'NSE',
+        price: r.price ?? null,
+        change: r.change ?? null,
+        changePercent: r.changePercent ?? null,
+      }));
+      setSearchResults(results);
+    } catch {
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
     }
   };
 
-  const handleStockSelect = (stock: StockData) => {
-    setSelectedStock(stock);
+  // ── Select stock → full analysis ──────────────────────────────────────────
+  const handleStockSelect = async (symbol: string) => {
     setSearchResults([]);
-    setSearchQuery(stock.symbol);
+    setSearchQuery(symbol);
+    setIsAnalyzing(true);
+    setError(null);
+    setAnalysis(null);
+    setActiveTab('overview');
+
+    try {
+      const resp = await fetch(`${BACKEND}/api/market/stock-analysis/${encodeURIComponent(symbol)}`);
+      if (!resp.ok) throw new Error('Analysis failed');
+      const json = await resp.json();
+      if (json.status === 'success') {
+        setAnalysis(json.data);
+      } else {
+        throw new Error(json.message || 'Analysis failed');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to analyze stock');
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
-  const renderStockOverview = () => {
-    if (!selectedStock) return null;
+  // ── Load historical chart ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (!analysis?.symbol) return;
+    const tfMap: Record<string, { period: string; interval: string }> = {
+      '1D': { period: '1d', interval: '5m' },
+      '1W': { period: '5d', interval: '15m' },
+      '1M': { period: '1mo', interval: '1d' },
+      '3M': { period: '3mo', interval: '1d' },
+      '6M': { period: '6mo', interval: '1d' },
+      '1Y': { period: '1y', interval: '1d' },
+    };
+    const { period, interval } = tfMap[stockTimeframe] || tfMap['1M'];
+
+    (async () => {
+      try {
+        const resp = await fetch(`${BACKEND}/api/market/historical/${encodeURIComponent(analysis.symbol)}?period=${period}&interval=${interval}`);
+        if (!resp.ok) return;
+        const json = await resp.json();
+        const rows = json?.data?.data || [];
+        setChartData(rows.map((r: any) => {
+          const d = new Date(r.date);
+          const label = stockTimeframe === '1D'
+            ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+            : `${d.getDate()}/${d.getMonth() + 1}`;
+          return { time: label, price: Math.round(r.close ?? 0), volume: Math.round((r.volume ?? 0) / 1000) };
+        }));
+      } catch {
+        setChartData([]);
+      }
+    })();
+  }, [analysis?.symbol, stockTimeframe]);
+
+  // ── Render: Overview Tab ──────────────────────────────────────────────────
+  const renderOverview = () => {
+    if (!analysis) return null;
+    const p = analysis.price;
+    const isUp = p.change >= 0;
 
     return (
       <div className="space-y-6">
@@ -275,90 +192,420 @@ const StockSearchTab = () => {
         <div className="glass-effect rounded-xl p-6 shadow-lg">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">{selectedStock.symbol}</h2>
-              <p className="text-gray-600">{selectedStock.companyName}</p>
-              <p className="text-sm text-gray-500">{selectedStock.sector} • {selectedStock.industry}</p>
+              <h2 className="text-2xl font-bold text-gray-900">{analysis.symbol}</h2>
+              <p className="text-gray-600">{p.companyName}</p>
+              <p className="text-sm text-gray-500">{p.sector} &bull; {p.industry}</p>
             </div>
             <div className="text-right">
-              <p className="text-3xl font-bold text-gray-900">₹{selectedStock.currentPrice.toLocaleString()}</p>
-              <div className={`flex items-center justify-end ${selectedStock.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {selectedStock.change >= 0 ? <TrendingUp className="h-5 w-5 mr-1" /> : <TrendingDown className="h-5 w-5 mr-1" />}
+              <p className="text-3xl font-bold text-gray-900">₹{p.currentPrice?.toLocaleString('en-IN')}</p>
+              <div className={`flex items-center justify-end ${isUp ? 'text-green-600' : 'text-red-600'}`}>
+                {isUp ? <TrendingUp className="h-5 w-5 mr-1" /> : <TrendingDown className="h-5 w-5 mr-1" />}
                 <span className="font-semibold">
-                  {selectedStock.change >= 0 ? '+' : ''}{selectedStock.change} ({selectedStock.changePercent >= 0 ? '+' : ''}{selectedStock.changePercent}%)
+                  {isUp ? '+' : ''}{p.change?.toFixed(2)} ({isUp ? '+' : ''}{p.changePercent?.toFixed(2)}%)
                 </span>
               </div>
-              <p className="text-sm text-gray-500">Last updated: {selectedStock.lastUpdated}</p>
+              <p className="text-xs text-gray-500 mt-1">Analyzed: {new Date(analysis.analyzedAt).toLocaleTimeString()}</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="text-center p-3 bg-blue-50 rounded-lg">
-              <p className="text-sm text-gray-600">Market Cap</p>
-              <p className="text-lg font-bold text-blue-600">{selectedStock.marketCap}</p>
-            </div>
-            <div className="text-center p-3 bg-green-50 rounded-lg">
-              <p className="text-sm text-gray-600">P/E Ratio</p>
-              <p className="text-lg font-bold text-green-600">{selectedStock.fundamentals['Price-to-earnings (PE) ratio']}</p>
-            </div>
-            <div className="text-center p-3 bg-purple-50 rounded-lg">
-              <p className="text-sm text-gray-600">ROE</p>
-              <p className="text-lg font-bold text-purple-600">{selectedStock.fundamentals['Return on Equity (ROE)']}%</p>
-            </div>
+          {/* Timeframe selector + Chart */}
+          <div className="flex items-center gap-2 mb-4">
+            {(['1D', '1W', '1M', '3M', '6M', '1Y'] as const).map(tf => (
+              <button key={tf} onClick={() => setStockTimeframe(tf)}
+                className={`px-2 py-1 text-xs rounded ${stockTimeframe === tf ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                {tf}
+              </button>
+            ))}
+          </div>
+
+          {chartData.length > 0 && (
+            <ResponsiveContainer width="100%" height={280}>
+              <ComposedChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="time" tick={{ fontSize: 11 }} />
+                <YAxis yAxisId="left" tickFormatter={(v) => `₹${v}`} tick={{ fontSize: 11 }} />
+                <YAxis yAxisId="right" orientation="right" tickFormatter={(v) => `${v}k`} tick={{ fontSize: 11 }} />
+                <Tooltip formatter={(value: any, name: string) =>
+                  name === 'price' ? [`₹${value}`, 'Price'] : [`${value}k`, 'Volume']
+                } />
+                <Bar yAxisId="right" dataKey="volume" fill="#94a3b8" opacity={0.5} />
+                <Line yAxisId="left" type="monotone" dataKey="price" stroke="#2563eb" strokeWidth={2} dot={false} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+
+          {/* Quick Stats Grid */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+            {[
+              { label: 'Open', value: `₹${p.open?.toLocaleString('en-IN')}` },
+              { label: 'Day High', value: `₹${p.dayHigh?.toLocaleString('en-IN')}` },
+              { label: 'Day Low', value: `₹${p.dayLow?.toLocaleString('en-IN')}` },
+              { label: 'Prev Close', value: `₹${p.previousClose?.toLocaleString('en-IN')}` },
+              { label: 'Volume', value: p.volume?.toLocaleString('en-IN') },
+              { label: 'Market Cap', value: formatINR(p.marketCap) },
+              { label: '52W High', value: `₹${p.fiftyTwoWeekHigh?.toLocaleString('en-IN')}` },
+              { label: '52W Low', value: `₹${p.fiftyTwoWeekLow?.toLocaleString('en-IN')}` },
+            ].map((item) => (
+              <div key={item.label} className="text-center p-3 bg-gray-50 rounded-lg">
+                <p className="text-xs text-gray-500">{item.label}</p>
+                <p className="text-sm font-bold text-gray-900">{item.value || 'N/A'}</p>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Quick Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="glass-effect rounded-lg p-4 text-center">
-            <BarChart3 className="h-8 w-8 text-blue-600 mx-auto mb-2" />
-            <p className="text-lg font-bold text-gray-900">{selectedStock.fundamentals['Revenue growth (YoY)']}%</p>
-            <p className="text-sm text-gray-600">Revenue Growth</p>
+        {/* AI Recommendation Card (if available) */}
+        {analysis.recommendation && renderRecommendationCard()}
+
+        {/* News Section (compact) */}
+        {analysis.news.length > 0 && (
+          <div className="glass-effect rounded-xl p-6 shadow-lg">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+              <Newspaper className="h-5 w-5 mr-2 text-blue-600" />
+              Latest News
+            </h3>
+            <div className="space-y-3">
+              {analysis.news.slice(0, 3).map((n, i) => (
+                <div key={i} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                  <span className={`px-2 py-0.5 text-xs rounded-full font-medium mt-0.5 ${
+                    n.sentiment === 'Positive' ? 'bg-green-100 text-green-700' :
+                    n.sentiment === 'Negative' ? 'bg-red-100 text-red-700' :
+                    'bg-gray-100 text-gray-700'
+                  }`}>{n.sentiment}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{n.headline}</p>
+                    <p className="text-xs text-gray-500">{n.summary}</p>
+                    <p className="text-xs text-gray-400 mt-1">{n.source} &bull; {n.date}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="glass-effect rounded-lg p-4 text-center">
-            <Target className="h-8 w-8 text-green-600 mx-auto mb-2" />
-            <p className="text-lg font-bold text-gray-900">{selectedStock.fundamentals['Profit margin']}%</p>
-            <p className="text-sm text-gray-600">Profit Margin</p>
-          </div>
-          <div className="glass-effect rounded-lg p-4 text-center">
-            <Activity className="h-8 w-8 text-purple-600 mx-auto mb-2" />
-            <p className="text-lg font-bold text-gray-900">{selectedStock.technical['RSI (Relative Strength Index)']}</p>
-            <p className="text-sm text-gray-600">RSI</p>
-          </div>
-          <div className="glass-effect rounded-lg p-4 text-center">
-            <Star className="h-8 w-8 text-yellow-600 mx-auto mb-2" />
-            <p className="text-lg font-bold text-gray-900">{selectedStock.fundamentals['Dividend Yield']}%</p>
-            <p className="text-sm text-gray-600">Dividend Yield</p>
-          </div>
-        </div>
+        )}
       </div>
     );
   };
 
-  const renderParameterTable = (title: string, data: { [key: string]: number | string }, icon: any) => {
-    const Icon = icon;
+  // ── Render: AI Recommendation Card ────────────────────────────────────────
+  const renderRecommendationCard = () => {
+    if (!analysis?.recommendation) return null;
+    const r = analysis.recommendation;
+    const actionColors: Record<string, string> = {
+      BUY: 'bg-green-600', SELL: 'bg-red-600', HOLD: 'bg-yellow-500', ACCUMULATE: 'bg-blue-600',
+    };
+
     return (
-      <div className="glass-effect rounded-xl p-6 shadow-lg">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-          <Icon className="h-5 w-5 mr-2 text-blue-600" />
-          {title}
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {Object.entries(data).map(([key, value]) => (
-            <div key={key} className="flex justify-between items-center p-3 border border-gray-200 rounded-lg">
-              <span className="text-sm text-gray-700">{key}</span>
-              <span className="font-medium text-gray-900">{value}</span>
+      <div className="glass-effect rounded-xl p-6 shadow-lg border-2 border-blue-100">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+            <Brain className="h-5 w-5 mr-2 text-purple-600" />
+            AI Recommendation
+          </h3>
+          <span className={`${actionColors[r.action] || 'bg-gray-500'} text-white px-4 py-1.5 rounded-full text-sm font-bold`}>
+            {r.action}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <div className="text-center p-3 bg-green-50 rounded-lg">
+            <p className="text-xs text-gray-500">Entry Price</p>
+            <p className="text-lg font-bold text-green-700">₹{r.entryPrice?.toLocaleString('en-IN')}</p>
+          </div>
+          <div className="text-center p-3 bg-blue-50 rounded-lg">
+            <p className="text-xs text-gray-500">Target</p>
+            <p className="text-lg font-bold text-blue-700">₹{r.targetPrice?.toLocaleString('en-IN')}</p>
+          </div>
+          <div className="text-center p-3 bg-red-50 rounded-lg">
+            <p className="text-xs text-gray-500">Stop Loss</p>
+            <p className="text-lg font-bold text-red-700">₹{r.stopLoss?.toLocaleString('en-IN')}</p>
+          </div>
+          <div className="text-center p-3 bg-purple-50 rounded-lg">
+            <p className="text-xs text-gray-500">Confidence</p>
+            <p className="text-lg font-bold text-purple-700">{r.confidence}%</p>
+          </div>
+        </div>
+
+        <div className="flex gap-4 text-sm text-gray-600 mb-3">
+          <span className="flex items-center"><Clock className="h-4 w-4 mr-1" /> {r.timeframe}</span>
+          <span className="flex items-center"><Target className="h-4 w-4 mr-1" /> R:R {r.riskReward}</span>
+        </div>
+
+        <p className="text-sm text-gray-700 mb-3">{r.reasoning}</p>
+
+        {r.catalysts && r.catalysts.length > 0 && (
+          <div className="mb-2">
+            <p className="text-xs font-semibold text-green-700 mb-1">Catalysts:</p>
+            <div className="flex flex-wrap gap-1">
+              {r.catalysts.map((c, i) => (
+                <span key={i} className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full">{c}</span>
+              ))}
             </div>
-          ))}
+          </div>
+        )}
+        {r.risks && r.risks.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-red-700 mb-1">Risks:</p>
+            <div className="flex flex-wrap gap-1">
+              {r.risks.map((risk, i) => (
+                <span key={i} className="text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded-full">{risk}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Auto Paper Trade Notice */}
+        {['BUY', 'SELL', 'ACCUMULATE'].includes(r.action) && (
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <div className="w-full py-2.5 rounded-lg bg-green-50 text-green-700 text-sm font-medium text-center flex items-center justify-center gap-2">
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+              Auto-saved as Paper Trade
+            </div>
+            <p className="text-xs text-gray-500 text-center mt-1">Track performance in the Paper Trading tab</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ── Render: Fundamentals Tab ──────────────────────────────────────────────
+  const renderFundamentals = () => {
+    if (!analysis) return null;
+    const f = analysis.fundamentals;
+    if (!f || Object.keys(f).length === 0) {
+      return (
+        <div className="glass-effect rounded-xl p-8 shadow-lg text-center">
+          <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+          <p className="text-gray-600">No fundamental data available for {analysis.symbol}</p>
+        </div>
+      );
+    }
+
+    // Group fundamentals
+    const valuation = ['P/E Ratio (TTM)', 'Forward P/E', 'P/B Ratio', 'EPS (TTM)', 'Book Value', 'Market Cap', 'Beta'];
+    const profitability = ['ROE', 'ROA', 'Profit Margin', 'Operating Margin'];
+    const growth = ['Revenue Growth (YoY)', 'Earnings Growth (YoY)'];
+    const health = ['Debt/Equity', 'Current Ratio'];
+    const dividends = ['Dividend Yield', 'Dividend Rate'];
+    const ownership = ['Promoter Holding', 'FII Holding'];
+    const priceRange = ['52-Week High', '52-Week Low', 'Avg Volume (10d)'];
+
+    const renderGroup = (title: string, icon: any, keys: string[]) => {
+      const Icon = icon;
+      const entries = keys.filter(k => f[k] && f[k] !== 'N/A');
+      if (entries.length === 0) return null;
+      return (
+        <div className="glass-effect rounded-xl p-5 shadow-lg">
+          <h4 className="text-md font-semibold text-gray-900 mb-3 flex items-center">
+            <Icon className="h-4 w-4 mr-2 text-blue-600" /> {title}
+          </h4>
+          <div className="space-y-2">
+            {entries.map(key => (
+              <div key={key} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
+                <span className="text-sm text-gray-600">{key}</span>
+                <span className="text-sm font-semibold text-gray-900">{f[key]}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    };
+
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {renderGroup('Valuation', BarChart3, valuation)}
+        {renderGroup('Profitability', TrendingUp, profitability)}
+        {renderGroup('Growth', Zap, growth)}
+        {renderGroup('Financial Health', Shield, health)}
+        {renderGroup('Dividends', Star, dividends)}
+        {renderGroup('Ownership', Shield, ownership)}
+        {renderGroup('Price Range', Activity, priceRange)}
+      </div>
+    );
+  };
+
+  // ── Render: Technicals Tab ────────────────────────────────────────────────
+  const renderTechnicals = () => {
+    if (!analysis) return null;
+    const t = analysis.technicals;
+    if (!t || Object.keys(t).length === 0) {
+      return (
+        <div className="glass-effect rounded-xl p-8 shadow-lg text-center">
+          <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+          <p className="text-gray-600">No technical data available for {analysis.symbol}</p>
+        </div>
+      );
+    }
+
+    const trendColor = t['Trend'] === 'Bullish' ? 'text-green-600' : t['Trend'] === 'Bearish' ? 'text-red-600' : 'text-yellow-600';
+    const signalColor = t['Signal']?.includes('Buy') ? 'bg-green-100 text-green-700' :
+      t['Signal']?.includes('Sell') ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700';
+
+    return (
+      <div className="space-y-4">
+        {/* Trend + Signal Banner */}
+        <div className="glass-effect rounded-xl p-5 shadow-lg flex items-center justify-between">
+          <div>
+            <p className="text-sm text-gray-500">Overall Trend</p>
+            <p className={`text-2xl font-bold ${trendColor}`}>{t['Trend'] || 'N/A'}</p>
+          </div>
+          <span className={`px-4 py-2 rounded-full text-sm font-bold ${signalColor}`}>
+            {t['Signal'] || 'Neutral'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Momentum */}
+          <div className="glass-effect rounded-xl p-5 shadow-lg">
+            <h4 className="text-md font-semibold text-gray-900 mb-3 flex items-center">
+              <Activity className="h-4 w-4 mr-2 text-purple-600" /> Momentum
+            </h4>
+            <div className="space-y-3">
+              {/* RSI with visual bar */}
+              <div>
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="text-gray-600">RSI (14)</span>
+                  <span className="font-semibold">{t['RSI (14)']}</span>
+                </div>
+                {t['RSI (14)'] && t['RSI (14)'] !== 'N/A' && (
+                  <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all"
+                      style={{
+                        width: `${Math.min(100, parseFloat(t['RSI (14)']))}%`,
+                        backgroundColor: parseFloat(t['RSI (14)']) > 70 ? '#ef4444' : parseFloat(t['RSI (14)']) < 30 ? '#22c55e' : '#3b82f6',
+                      }}
+                    />
+                  </div>
+                )}
+                <div className="flex justify-between text-xs text-gray-400 mt-0.5">
+                  <span>Oversold (&lt;30)</span>
+                  <span>Overbought (&gt;70)</span>
+                </div>
+              </div>
+              {['ADX (14)', 'VWAP (approx)', 'Avg Volume (20d)'].map(key => t[key] && t[key] !== 'N/A' && (
+                <div key={key} className="flex justify-between py-1 border-b border-gray-100">
+                  <span className="text-sm text-gray-600">{key}</span>
+                  <span className="text-sm font-semibold">{t[key]}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* MACD */}
+          <div className="glass-effect rounded-xl p-5 shadow-lg">
+            <h4 className="text-md font-semibold text-gray-900 mb-3 flex items-center">
+              <LineChart className="h-4 w-4 mr-2 text-blue-600" /> MACD
+            </h4>
+            <div className="space-y-2">
+              {['MACD Line', 'MACD Signal', 'MACD Histogram'].map(key => (
+                <div key={key} className="flex justify-between py-2 border-b border-gray-100 last:border-0">
+                  <span className="text-sm text-gray-600">{key}</span>
+                  <span className={`text-sm font-semibold ${
+                    key === 'MACD Histogram' && t[key] && t[key] !== 'N/A'
+                      ? parseFloat(t[key]) > 0 ? 'text-green-600' : 'text-red-600'
+                      : 'text-gray-900'
+                  }`}>{t[key] || 'N/A'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Moving Averages */}
+          <div className="glass-effect rounded-xl p-5 shadow-lg">
+            <h4 className="text-md font-semibold text-gray-900 mb-3 flex items-center">
+              <TrendingUp className="h-4 w-4 mr-2 text-green-600" /> Moving Averages
+            </h4>
+            <div className="space-y-2">
+              {['EMA 20', 'EMA 50', 'EMA 200', 'SMA 20'].map(key => (
+                <div key={key} className="flex justify-between py-2 border-b border-gray-100 last:border-0">
+                  <span className="text-sm text-gray-600">{key}</span>
+                  <span className="text-sm font-semibold text-gray-900">{t[key] || 'N/A'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Bollinger Bands */}
+          <div className="glass-effect rounded-xl p-5 shadow-lg">
+            <h4 className="text-md font-semibold text-gray-900 mb-3 flex items-center">
+              <BarChart3 className="h-4 w-4 mr-2 text-orange-600" /> Bollinger Bands (20, 2)
+            </h4>
+            <div className="space-y-2">
+              {['Bollinger Upper', 'Bollinger Lower'].map(key => (
+                <div key={key} className="flex justify-between py-2 border-b border-gray-100 last:border-0">
+                  <span className="text-sm text-gray-600">{key}</span>
+                  <span className="text-sm font-semibold text-gray-900">{t[key] || 'N/A'}</span>
+                </div>
+              ))}
+              {analysis.price.currentPrice > 0 && t['Bollinger Upper'] && t['Bollinger Lower'] &&
+                t['Bollinger Upper'] !== 'N/A' && t['Bollinger Lower'] !== 'N/A' && (
+                <div className="mt-2 p-2 bg-gray-50 rounded text-xs text-center">
+                  Price is at{' '}
+                  {(() => {
+                    const upper = parseFloat(t['Bollinger Upper']);
+                    const lower = parseFloat(t['Bollinger Lower']);
+                    const pos = ((analysis.price.currentPrice - lower) / (upper - lower)) * 100;
+                    return `${pos.toFixed(0)}% of band width`;
+                  })()}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     );
   };
 
+  // ── Render: AI & News Tab ─────────────────────────────────────────────────
+  const renderAINews = () => {
+    if (!analysis) return null;
+
+    return (
+      <div className="space-y-4">
+        {/* Full AI Recommendation */}
+        {analysis.recommendation ? renderRecommendationCard() : (
+          <div className="glass-effect rounded-xl p-8 shadow-lg text-center">
+            <Brain className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+            <p className="text-gray-600">AI recommendation unavailable. Check your Perplexity API key in Settings.</p>
+          </div>
+        )}
+
+        {/* Full News List */}
+        <div className="glass-effect rounded-xl p-6 shadow-lg">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+            <Newspaper className="h-5 w-5 mr-2 text-blue-600" />
+            Recent News & Updates
+          </h3>
+          {analysis.news.length > 0 ? (
+            <div className="space-y-3">
+              {analysis.news.map((n, i) => (
+                <div key={i} className="p-4 bg-gray-50 rounded-lg">
+                  <div className="flex items-start justify-between mb-2">
+                    <p className="text-sm font-semibold text-gray-900 flex-1">{n.headline}</p>
+                    <span className={`ml-2 px-2 py-0.5 text-xs rounded-full font-medium whitespace-nowrap ${
+                      n.sentiment === 'Positive' ? 'bg-green-100 text-green-700' :
+                      n.sentiment === 'Negative' ? 'bg-red-100 text-red-700' :
+                      'bg-gray-200 text-gray-600'
+                    }`}>{n.sentiment}</span>
+                  </div>
+                  <p className="text-sm text-gray-600">{n.summary}</p>
+                  <p className="text-xs text-gray-400 mt-2">{n.source} &bull; {n.date}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-gray-500 text-center py-4">No recent news found. Perplexity API key may not be configured.</p>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // ── Main Render ───────────────────────────────────────────────────────────
   return (
     <div className="space-y-6 slide-in">
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Stock Search & Analysis</h1>
-        <p className="text-gray-600">Search for detailed stock information and comprehensive analysis</p>
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Stock Analysis Engine</h1>
+        <p className="text-gray-600">Search any stock for complete fundamentals, technicals, news & AI recommendation</p>
       </div>
 
       {/* Search Bar */}
@@ -369,95 +616,111 @@ const StockSearchTab = () => {
             type="text"
             value={searchQuery}
             onChange={(e) => handleSearch(e.target.value)}
-            placeholder="Search stocks by symbol or company name (e.g., RELIANCE, TCS, HDFC)"
+            placeholder="Search stocks by symbol or company name (e.g., RELIANCE, TCS, INFY)"
             className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg text-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
         </div>
 
         {/* Search Results Dropdown */}
         {searchResults.length > 0 && (
-          <div className="mt-4 border border-gray-200 rounded-lg bg-white shadow-lg max-h-60 overflow-y-auto">
+          <div className="mt-3 border border-gray-200 rounded-lg bg-white shadow-lg max-h-60 overflow-y-auto">
             {searchResults.map((stock, index) => (
-              <div
-                key={index}
-                onClick={() => handleStockSelect(stock)}
-                className="p-4 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-semibold text-gray-900">{stock.symbol}</h4>
-                    <p className="text-sm text-gray-600">{stock.companyName}</p>
-                    <p className="text-xs text-gray-500">{stock.sector}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-semibold text-gray-900">₹{stock.currentPrice}</p>
-                    <p className={`text-sm ${stock.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {stock.change >= 0 ? '+' : ''}{stock.change} ({stock.changePercent >= 0 ? '+' : ''}{stock.changePercent}%)
-                    </p>
-                  </div>
+              <div key={index} onClick={() => handleStockSelect(stock.symbol)}
+                className="p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0 flex items-center justify-between">
+                <div>
+                  <span className="font-semibold text-gray-900">{stock.symbol}</span>
+                  <span className="text-sm text-gray-500 ml-2">{stock.name}</span>
                 </div>
+                {stock.price != null && (
+                  <div className="text-right">
+                    <span className="font-medium text-gray-900">₹{stock.price}</span>
+                    {stock.changePercent != null && (
+                      <span className={`text-xs ml-2 ${(stock.changePercent ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {(stock.changePercent ?? 0) >= 0 ? '+' : ''}{stock.changePercent?.toFixed(2)}%
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
         )}
 
-        {/* Loading State */}
-        {isLoading && (
-          <div className="mt-4 text-center py-4">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="text-gray-600 mt-2">Searching...</p>
+        {isSearching && (
+          <div className="mt-3 text-center py-3">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
+            <p className="text-sm text-gray-500 mt-1">Searching...</p>
           </div>
         )}
       </div>
 
-      {/* Stock Details */}
-      {selectedStock && (
+      {/* Analyzing Loader */}
+      {isAnalyzing && (
+        <div className="glass-effect rounded-xl p-12 shadow-lg text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-lg font-semibold text-gray-900">Analyzing {searchQuery}...</p>
+          <p className="text-sm text-gray-500 mt-1">Fetching fundamentals, computing technicals, searching news, generating AI recommendation</p>
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div className="glass-effect rounded-xl p-6 shadow-lg border-l-4 border-red-500">
+          <div className="flex items-center">
+            <AlertCircle className="h-6 w-6 text-red-500 mr-3" />
+            <div>
+              <p className="font-semibold text-gray-900">Analysis Failed</p>
+              <p className="text-sm text-gray-600">{error}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Analysis Content */}
+      {analysis && !isAnalyzing && (
         <>
           {/* Tab Navigation */}
-          <div className="flex justify-center mb-6">
+          <div className="flex justify-center mb-2">
             <div className="glass-effect rounded-lg p-1 flex space-x-1">
               {[
-                { id: 'overview', label: 'Overview' },
-                { id: 'fundamentals', label: 'Fundamentals' },
-                { id: 'technical', label: 'Technical' },
-                { id: 'other', label: 'Other Factors' }
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`px-4 py-2 rounded-lg transition-all ${
-                    activeTab === tab.id
-                      ? 'bg-blue-600 text-white shadow-md'
-                      : 'text-gray-600 hover:bg-blue-50 hover:text-blue-600'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
+                { id: 'overview', label: 'Overview', icon: BarChart3 },
+                { id: 'fundamentals', label: 'Fundamentals', icon: Target },
+                { id: 'technical', label: 'Technical', icon: Activity },
+                { id: 'ai', label: 'AI & News', icon: Brain },
+              ].map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                    className={`px-4 py-2 rounded-lg transition-all flex items-center gap-1.5 text-sm ${
+                      activeTab === tab.id
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'text-gray-600 hover:bg-blue-50 hover:text-blue-600'
+                    }`}>
+                    <Icon className="h-4 w-4" />
+                    {tab.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {/* Tab Content */}
-          {activeTab === 'overview' && renderStockOverview()}
-          {activeTab === 'fundamentals' && renderParameterTable('📌 Fundamental Analysis', selectedStock.fundamentals, BarChart3)}
-          {activeTab === 'technical' && renderParameterTable('📈 Technical Analysis', selectedStock.technical, Activity)}
-          {activeTab === 'other' && renderParameterTable('🧠 Other Factors', selectedStock.other, Target)}
+          {activeTab === 'overview' && renderOverview()}
+          {activeTab === 'fundamentals' && renderFundamentals()}
+          {activeTab === 'technical' && renderTechnicals()}
+          {activeTab === 'ai' && renderAINews()}
         </>
       )}
 
-      {/* No Stock Selected */}
-      {!selectedStock && !isLoading && searchQuery === '' && (
+      {/* Empty State */}
+      {!analysis && !isAnalyzing && !error && searchQuery === '' && (
         <div className="glass-effect rounded-xl p-12 shadow-lg text-center">
           <Search className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">Search for Stocks</h3>
-          <p className="text-gray-600 mb-4">Enter a stock symbol or company name to get detailed analysis</p>
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">Search for any Stock</h3>
+          <p className="text-gray-600 mb-4">Get complete analysis: fundamentals, technicals, latest news & AI recommendation</p>
           <div className="flex flex-wrap justify-center gap-2">
-            {['RELIANCE', 'TCS', 'HDFC', 'INFY', 'ICICIBANK'].map((symbol) => (
-              <button
-                key={symbol}
-                onClick={() => handleSearch(symbol)}
-                className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm hover:bg-blue-200 transition-colors"
-              >
+            {['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'TATAMOTORS', 'BAJFINANCE'].map((symbol) => (
+              <button key={symbol} onClick={() => handleStockSelect(symbol)}
+                className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm hover:bg-blue-200 transition-colors">
                 {symbol}
               </button>
             ))}

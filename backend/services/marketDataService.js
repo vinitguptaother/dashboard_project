@@ -12,7 +12,7 @@ class MarketDataService {
   // Get market data with caching
   async getMarketData(symbol, useCache = true) {
     const cacheKey = `market_${symbol}`;
-    
+
     if (useCache && this.cache.has(cacheKey)) {
       const cached = this.cache.get(cacheKey);
       if (Date.now() - cached.timestamp < this.cacheTimeout) {
@@ -34,7 +34,7 @@ class MarketDataService {
       if (freshData) {
         // Save to database
         await this.saveMarketData(freshData);
-        
+
         // Cache the result
         this.cache.set(cacheKey, { data: freshData, timestamp: Date.now() });
         return freshData;
@@ -45,12 +45,12 @@ class MarketDataService {
 
     } catch (error) {
       apiLogger.error('MarketDataService', 'getMarketData', error, { symbol });
-      
+
       // Return cached data if available
       if (this.cache.has(cacheKey)) {
         return this.cache.get(cacheKey).data;
       }
-      
+
       throw error;
     }
   }
@@ -58,18 +58,28 @@ class MarketDataService {
   // Fetch data from external APIs
   async fetchFromExternalAPI(symbol) {
     try {
-      // Try Yahoo Finance first (free)
-      const yahooData = await this.fetchFromYahoo(symbol);
-      if (yahooData) {
-        apiLogger.info('Yahoo Finance', 'fetchQuote', { symbol, success: true });
-        return yahooData;
+      // Try Broker API (Upstox integration)
+      if (process.env.UPSTOX_ACCESS_TOKEN) {
+        try {
+          const upstoxService = require('./upstoxService');
+          const upstoxData = await upstoxService.fetchStockQuote(symbol);
+          if (upstoxData) {
+            apiLogger.info('Upstox API', 'fetchQuote', { symbol, success: true });
+            return upstoxData;
+          }
+        } catch (upstoxError) {
+          apiLogger.error('Upstox API', 'fetchQuote', upstoxError, { symbol });
+          // Continue to fallback options
+        }
       }
 
-      // Try Alpha Vantage as fallback
-      const alphaData = await this.fetchFromAlphaVantage(symbol);
-      if (alphaData) {
-        apiLogger.info('Alpha Vantage', 'fetchQuote', { symbol, success: true });
-        return alphaData;
+      // Try Alpha Vantage as fallback (if configured)
+      if (process.env.ALPHA_VANTAGE_API_KEY) {
+        const alphaData = await this.fetchFromAlphaVantage(symbol);
+        if (alphaData) {
+          apiLogger.info('Alpha Vantage', 'fetchQuote', { symbol, success: true });
+          return alphaData;
+        }
       }
 
       return null;
@@ -79,44 +89,6 @@ class MarketDataService {
     }
   }
 
-  // Fetch from Yahoo Finance
-  async fetchFromYahoo(symbol) {
-    try {
-      const yahooSymbol = this.formatSymbolForYahoo(symbol);
-      const response = await axios.get(
-        `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}`,
-        { timeout: 10000 }
-      );
-
-      const result = response.data.chart.result[0];
-      if (!result) return null;
-
-      const meta = result.meta;
-      const quote = result.indicators.quote[0];
-      
-      const currentPrice = meta.regularMarketPrice || quote.close[quote.close.length - 1];
-      const previousClose = meta.previousClose;
-      const change = currentPrice - previousClose;
-      const changePercent = (change / previousClose) * 100;
-
-      return {
-        symbol: symbol.toUpperCase(),
-        price: parseFloat(currentPrice.toFixed(2)),
-        change: parseFloat(change.toFixed(2)),
-        changePercent: parseFloat(changePercent.toFixed(2)),
-        volume: meta.regularMarketVolume || 0,
-        dayHigh: meta.regularMarketDayHigh,
-        dayLow: meta.regularMarketDayLow,
-        previousClose: previousClose,
-        marketCap: meta.marketCap,
-        timestamp: new Date().toISOString(),
-        source: 'yahoo_finance'
-      };
-    } catch (error) {
-      apiLogger.error('Yahoo Finance', 'fetchQuote', error, { symbol });
-      return null;
-    }
-  }
 
   // Fetch from Alpha Vantage
   async fetchFromAlphaVantage(symbol) {
@@ -154,16 +126,6 @@ class MarketDataService {
     }
   }
 
-  // Format symbol for Yahoo Finance
-  formatSymbolForYahoo(symbol) {
-    // Handle Indian stocks
-    if (symbol === 'NIFTY') return '^NSEI';
-    if (symbol === 'SENSEX') return '^BSESN';
-    if (symbol === 'BANKNIFTY') return '^NSEBANK';
-    
-    // Add .NS for NSE stocks if not present
-    return symbol.includes('.') ? symbol : `${symbol}.NS`;
-  }
 
   // Save market data to database
   async saveMarketData(data) {
@@ -210,7 +172,7 @@ class MarketDataService {
 
   // Batch fetch multiple symbols
   async getBatchMarketData(symbols) {
-    const promises = symbols.map(symbol => 
+    const promises = symbols.map(symbol =>
       this.getMarketData(symbol).catch(error => ({
         symbol,
         error: error.message

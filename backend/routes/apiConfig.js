@@ -76,8 +76,8 @@ router.get('/apis/:id', async (req, res) => {
 // @access  Private
 router.post('/apis', [
   body('name').trim().isLength({ min: 1, max: 100 }),
-  body('provider').isIn(['yahoo_finance', 'alpha_vantage', 'newsapi', 'fmp', 'coingecko', 'perplexity', 'custom']),
-  body('category').isIn(['market-data', 'news', 'technical-analysis', 'fundamental-analysis', 'ai-ml', 'crypto']),
+  body('provider').isIn(['yahoo_finance', 'alpha_vantage', 'newsapi', 'fmp', 'coingecko', 'perplexity', 'alice_blue', 'custom']),
+  body('category').isIn(['market-data', 'news', 'technical-analysis', 'fundamental-analysis', 'ai-ml', 'crypto', 'broker']),
   body('endpoint').isURL(),
   body('apiKey').optional().trim(),
   body('description').optional().trim().isLength({ max: 500 })
@@ -92,7 +92,7 @@ router.post('/apis', [
       });
     }
 
-    const { name, provider, category, endpoint, apiKey, headers, parameters, description } = req.body;
+    const { name, provider, category, endpoint, apiKey, headers, parameters, description, appId, apiSecret, username, password, twoFA } = req.body;
 
     // Check if API with same name already exists for user
     const existingAPI = await APIConfig.findOne({
@@ -117,7 +117,13 @@ router.post('/apis', [
       apiKey,
       headers: headers || {},
       parameters: parameters || {},
-      description
+      description,
+      // Alice Blue specific fields
+      appId,
+      apiSecret,
+      username,
+      password,
+      twoFA
     });
 
     await apiConfig.save();

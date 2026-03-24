@@ -100,9 +100,15 @@ const NewsTab = () => {
                 <span className="text-sm text-gray-500">{newsItem.source}</span>
               </div>
 
-              <h3 className="text-lg font-semibold text-gray-900 mb-2 hover:text-blue-600 cursor-pointer">
-                {newsItem.title}
-              </h3>
+              {newsItem.url ? (
+                <a href={newsItem.url} target="_blank" rel="noopener noreferrer" className="text-lg font-semibold text-gray-900 mb-2 hover:text-blue-600 cursor-pointer block">
+                  {newsItem.title}
+                </a>
+              ) : (
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                  {newsItem.title}
+                </h3>
+              )}
 
               <p className="text-gray-700 mb-4">{newsItem.summary}</p>
 
@@ -135,10 +141,16 @@ const NewsTab = () => {
                       </p>
                     </div>
                   </div>
-                  <button className="flex items-center space-x-1 text-blue-600 hover:text-blue-800 text-sm font-medium">
-                    <span>Read More</span>
-                    <ExternalLink className="h-4 w-4" />
-                  </button>
+                  {newsItem.url ? (
+                    <a href={newsItem.url} target="_blank" rel="noopener noreferrer" className="flex items-center space-x-1 text-blue-600 hover:text-blue-800 text-sm font-medium">
+                      <span>Read Full Article</span>
+                      <ExternalLink className="h-4 w-4" />
+                    </a>
+                  ) : (
+                    <span className="flex items-center space-x-1 text-gray-400 text-sm">
+                      <span>No link available</span>
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

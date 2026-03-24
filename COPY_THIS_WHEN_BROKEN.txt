@@ -1,0 +1,57 @@
+==========================================
+DASHBOARD DEBUG INFO - COPY ALL OF THIS
+==========================================
+
+My AI Stock Dashboard (Next.js + Express + Upstox) is broken.
+
+PROJECT PATH: E:\Dashboard_project Latest\dashboard_project
+
+ISSUE: [Describe: showing DEMO instead of LIVE / wrong prices / errors / etc.]
+
+---
+HEALTH CHECK:
+[Visit http://localhost:5002/api/health-check/upstox and paste result here]
+
+---
+BACKEND LOGS (last 50 lines):
+[Copy from backend terminal]
+
+---
+BROWSER CONSOLE ERRORS (F12):
+[Copy any red errors]
+
+---
+DASHBOARD STATUS:
+- Badge: [DEMO/LIVE]
+- NIFTY price: ₹ 
+- SENSEX price: ₹ 
+- BANKNIFTY price: ₹ 
+
+---
+WHAT I TRIED:
+[ ] Checked health endpoint
+[ ] Restarted backend
+[ ] Refreshed browser (Ctrl+Shift+R)
+[ ] Checked token in backend/.env
+[ ] Other: 
+
+---
+SERVERS:
+- Backend: [YES/NO] port: ____
+- Frontend: [YES/NO] port: ____
+
+TOKEN: Last updated [today/X days ago/unknown]
+
+---
+CONTEXT:
+This dashboard was working before. Recent fixes applied:
+- Port mismatch (5001→5002)
+- Symbol mapping (NIFTY → NSE_INDEX|Nifty 50)
+- Data transformation fix
+- Rate limiter bypass
+- Health check endpoints
+
+Key files: services/upstoxService.js, backend/routes/upstox.js, app/api/ltp/route.ts, app/hooks/useLTP.ts
+
+Please help debug!
+==========================================

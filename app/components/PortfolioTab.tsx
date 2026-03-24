@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { 
   Briefcase, 
   Plus, 
@@ -17,6 +17,8 @@ import {
   CheckCircle,
   X
 } from 'lucide-react';
+import { AuthClient, PortfolioClient } from '../lib/apiService';
+import { usePortfolioWebSocket } from '../hooks/useWebSocket';
 
 interface Stock {
   id: string;
@@ -53,62 +55,65 @@ const PortfolioTab = () => {
   const [showEditStock, setShowEditStock] = useState(false);
   const [editingStock, setEditingStock] = useState<Stock | null>(null);
 
-  const [portfolios, setPortfolios] = useState<Portfolio[]>([
-    {
-      id: '1',
-      name: 'Growth Portfolio',
-      description: 'High-growth technology and emerging market stocks',
-      createdDate: '2024-01-15',
-      totalInvestment: 500000,
-      currentValue: 587500,
-      riskLevel: 'Aggressive',
-      strategy: 'Long-term Growth',
-      stocks: [
-        {
-          id: '1',
-          symbol: 'RELIANCE',
-          companyName: 'Reliance Industries Ltd',
-          quantity: 100,
-          purchasePrice: 2450,
-          purchaseDate: '2024-01-20',
-          currentPrice: 2485,
-          parameters: {
-            fundamental: {
-              'Revenue growth (YoY)': 12.5,
-              'PE ratio': 24.8,
-              'ROE': 15.2,
-              'Debt-to-Equity ratio': 0.35,
-              'Dividend Yield': 0.8
-            },
-            technical: {
-              'RSI': 65,
-              'MACD': 'Bullish',
-              'Moving averages (50 EMA)': 2420,
-              'Support level': 2400,
-              'Resistance level': 2550
-            },
-            other: {
-              'Daily Trading Volume': '2.5M',
-              'Beta': 1.2,
-              'News sentiment': 'Positive',
-              'FII activity': 'Buying'
-            }
-          }
-        }
-      ]
-    },
-    {
-      id: '2',
-      name: 'Dividend Portfolio',
-      description: 'Stable dividend-paying blue-chip stocks',
-      createdDate: '2024-02-01',
-      totalInvestment: 300000,
-      currentValue: 315000,
-      riskLevel: 'Conservative',
-      strategy: 'Dividend Income',
-      stocks: []
+  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // WebSocket for real-time portfolio updates
+  const { onPortfolioUpdate } = usePortfolioWebSocket();
+
+  const loadPortfolios = async () => {
+    if (!AuthClient.token) return;
+    setLoading(true);
+    try {
+      const json = await PortfolioClient.list();
+      if (json.status === 'success') {
+        const items = (json.data.portfolios || []).map((p: any) => ({
+          id: p._id,
+          name: p.name,
+          description: p.description,
+          createdDate: new Date(p.createdAt).toISOString().slice(0,10),
+          totalInvestment: p.totalInvested || 0,
+          currentValue: p.currentValue || 0,
+          riskLevel: 'Moderate',
+          strategy: p.type || 'equity',
+          stocks: (p.positions || []).map((pos: any) => ({
+            id: pos._id,
+            symbol: pos.symbol,
+            companyName: pos.symbol,
+            quantity: pos.quantity,
+            purchasePrice: pos.averagePrice,
+            purchaseDate: new Date(pos.lastUpdated || p.createdAt).toISOString().slice(0,10),
+            currentPrice: pos.currentPrice ?? pos.averagePrice,
+            parameters: { fundamental: {}, technical: {}, other: {} }
+          }))
+        }));
+        setPortfolios(items);
+      }
+    } finally {
+      setLoading(false);
     }
-  ]);
+  };
+
+  useEffect(() => {
+    loadPortfolios();
+  }, []);
+
+  // WebSocket real-time portfolio updates
+  useEffect(() => {
+    const unsubscribe = onPortfolioUpdate((data) => {
+      // Update portfolio data with real-time updates
+      setPortfolios(prev => prev.map(portfolio => ({
+        ...portfolio,
+        currentValue: data.totalValue,
+        stocks: portfolio.stocks.map(stock => ({
+          ...stock,
+          currentPrice: data.positions.find((p: any) => p.symbol === stock.symbol)?.currentPrice || stock.currentPrice
+        }))
+      })));
+    });
+
+    return unsubscribe;
+  }, [onPortfolioUpdate]);
 
   const fundamentalParameters = [
     'Revenue growth (YoY)', 'Revenue growth (QoQ)', 'Profit margin', 'Earnings per share (EPS)',
@@ -188,109 +193,63 @@ const PortfolioTab = () => {
     };
   };
 
-  const handleCreatePortfolio = () => {
-    const portfolio: Portfolio = {
-      id: Date.now().toString(),
-      ...newPortfolio,
-      createdDate: new Date().toISOString().split('T')[0],
-      totalInvestment: 0,
-      currentValue: 0,
-      stocks: []
-    };
-
-    setPortfolios([...portfolios, portfolio]);
-    setNewPortfolio({ name: '', description: '', riskLevel: 'Moderate', strategy: '' });
-    setShowCreatePortfolio(false);
+  const handleCreatePortfolio = async () => {
+    if (!AuthClient.token) return;
+    try {
+      const payload = { name: newPortfolio.name, description: newPortfolio.description, type: 'equity' as const };
+      const res = await PortfolioClient.create(payload);
+      if (res.status === 'success') {
+        await loadPortfolios();
+        setNewPortfolio({ name: '', description: '', riskLevel: 'Moderate', strategy: '' });
+        setShowCreatePortfolio(false);
+      }
+    } catch {}
   };
 
-  const handleAddStock = () => {
-    if (!selectedPortfolio) return;
-
-    const stock: Stock = {
-      id: Date.now().toString(),
-      symbol: newStock.symbol,
-      companyName: newStock.companyName,
-      quantity: newStock.quantity,
-      purchasePrice: newStock.purchasePrice,
-      purchaseDate: newStock.purchaseDate,
-      currentPrice: newStock.currentPrice,
-      parameters: {
-        fundamental: newStock.parameterValues.fundamental,
-        technical: newStock.parameterValues.technical,
-        other: newStock.parameterValues.other
-      }
-    };
-
-    setPortfolios(portfolios.map(p => {
-      if (p.id === selectedPortfolio) {
-        const updatedStocks = [...p.stocks, stock];
-        const totalInvestment = updatedStocks.reduce((sum, s) => sum + (s.quantity * s.purchasePrice), 0);
-        const currentValue = updatedStocks.reduce((sum, s) => sum + (s.quantity * s.currentPrice), 0);
-        
-        return {
-          ...p,
-          stocks: updatedStocks,
-          totalInvestment,
-          currentValue
-        };
-      }
-      return p;
-    }));
-
-    setNewStock({
-      symbol: '',
-      companyName: '',
-      quantity: 0,
-      purchasePrice: 0,
-      purchaseDate: '',
-      currentPrice: 0,
-      selectedParameters: { fundamental: [], technical: [], other: [] },
-      parameterValues: { fundamental: {}, technical: {}, other: {} }
-    });
-    setShowAddStock(false);
+  const handleAddStock = async () => {
+    if (!selectedPortfolio || !AuthClient.token) return;
+    try {
+      await PortfolioClient.addPosition(selectedPortfolio, {
+        symbol: newStock.symbol.toUpperCase(),
+        quantity: newStock.quantity,
+        averagePrice: newStock.purchasePrice,
+        exchange: 'NSE'
+      });
+      await loadPortfolios();
+      setNewStock({
+        symbol: '',
+        companyName: '',
+        quantity: 0,
+        purchasePrice: 0,
+        purchaseDate: '',
+        currentPrice: 0,
+        selectedParameters: { fundamental: [], technical: [], other: [] },
+        parameterValues: { fundamental: {}, technical: {}, other: {} }
+      });
+      setShowAddStock(false);
+    } catch {}
   };
 
-  const handleEditStock = () => {
-    if (!editingStock || !selectedPortfolio) return;
-
-    setPortfolios(portfolios.map(p => {
-      if (p.id === selectedPortfolio) {
-        const updatedStocks = p.stocks.map(s => s.id === editingStock.id ? editingStock : s);
-        const totalInvestment = updatedStocks.reduce((sum, s) => sum + (s.quantity * s.purchasePrice), 0);
-        const currentValue = updatedStocks.reduce((sum, s) => sum + (s.quantity * s.currentPrice), 0);
-        
-        return {
-          ...p,
-          stocks: updatedStocks,
-          totalInvestment,
-          currentValue
-        };
-      }
-      return p;
-    }));
-
-    setEditingStock(null);
-    setShowEditStock(false);
+  const handleEditStock = async () => {
+    if (!editingStock || !selectedPortfolio || !AuthClient.token) return;
+    try {
+      await PortfolioClient.updatePosition(selectedPortfolio, editingStock.id, {
+        quantity: editingStock.quantity,
+        averagePrice: editingStock.purchasePrice
+      });
+      await loadPortfolios();
+    } finally {
+      setEditingStock(null);
+      setShowEditStock(false);
+    }
   };
 
-  const handleDeleteStock = (stockId: string) => {
-    if (!selectedPortfolio) return;
-
-    setPortfolios(portfolios.map(p => {
-      if (p.id === selectedPortfolio) {
-        const updatedStocks = p.stocks.filter(s => s.id !== stockId);
-        const totalInvestment = updatedStocks.reduce((sum, s) => sum + (s.quantity * s.purchasePrice), 0);
-        const currentValue = updatedStocks.reduce((sum, s) => sum + (s.quantity * s.currentPrice), 0);
-        
-        return {
-          ...p,
-          stocks: updatedStocks,
-          totalInvestment,
-          currentValue
-        };
-      }
-      return p;
-    }));
+  const handleDeleteStock = async (stockId: string) => {
+    if (!selectedPortfolio || !AuthClient.token) return;
+    try {
+      await PortfolioClient.removePosition(selectedPortfolio, stockId);
+      await loadPortfolios();
+    } catch {}
   };
 
   const renderOverview = () => (

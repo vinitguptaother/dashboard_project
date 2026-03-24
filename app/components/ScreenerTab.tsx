@@ -1,99 +1,77 @@
 'use client';
 
-import { useState } from 'react';
-import { Search, Filter, TrendingUp, BarChart3, Target } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, Filter, TrendingUp, BarChart3, Target, RefreshCw, Loader2 } from 'lucide-react';
+import { screenerService, ScreenedStock, PresetScreen, ScreeningStatistics, ScreeningFilters } from '../lib/screenerService';
+import { AuthClient } from '../lib/apiService';
 
 const ScreenerTab = () => {
-  const [filters, setFilters] = useState({
+  const [filters, setFilters] = useState<ScreeningFilters>({
     marketCap: 'all',
     sector: 'all',
-    peRatio: { min: '', max: '' },
+    peRatioMin: '',
+    peRatioMax: '',
     priceChange: 'all',
     volume: 'all',
     technicalPattern: 'all'
   });
 
-  const [screenedStocks, setScreenedStocks] = useState([
-    {
-      symbol: 'BAJAJ FINANCE',
-      price: 6850.30,
-      change: 2.45,
-      changePercent: 0.36,
-      marketCap: '4.2L Cr',
-      peRatio: 28.5,
-      sector: 'NBFC',
-      volume: 'High',
-      technicalScore: 8.5,
-      fundamentalScore: 9.2,
-      pattern: 'Bullish Flag'
-    },
-    {
-      symbol: 'ASIAN PAINTS',
-      price: 3245.60,
-      change: -15.20,
-      changePercent: -0.47,
-      marketCap: '3.1L Cr',
-      peRatio: 58.2,
-      sector: 'Paints',
-      volume: 'Medium',
-      technicalScore: 7.8,
-      fundamentalScore: 9.4,
-      pattern: 'Cup & Handle'
-    },
-    {
-      symbol: 'HDFC BANK',
-      price: 1545.30,
-      change: 8.75,
-      changePercent: 0.57,
-      marketCap: '11.8L Cr',
-      peRatio: 18.5,
-      sector: 'Banking',
-      volume: 'High',
-      technicalScore: 8.2,
-      fundamentalScore: 9.1,
-      pattern: 'Ascending Triangle'
-    },
-    {
-      symbol: 'TATA STEEL',
-      price: 125.40,
-      change: 3.20,
-      changePercent: 2.62,
-      marketCap: '1.5L Cr',
-      peRatio: 45.2,
-      sector: 'Metals',
-      volume: 'Very High',
-      technicalScore: 8.7,
-      fundamentalScore: 7.8,
-      pattern: 'Breakout'
-    }
-  ]);
+  const [screenedStocks, setScreenedStocks] = useState<ScreenedStock[]>([]);
+  const [presetScreens, setPresetScreens] = useState<PresetScreen[]>([]);
+  const [statistics, setStatistics] = useState<ScreeningStatistics | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
-  const [presetScreens, setPresetScreens] = useState([
-    {
-      name: 'Momentum Stocks',
-      description: 'Stocks with strong price momentum and volume',
-      criteria: 'Price change > 5%, Volume > 2x avg',
-      count: 23
-    },
-    {
-      name: 'Value Picks',
-      description: 'Undervalued stocks with strong fundamentals',
-      criteria: 'P/E < 15, ROE > 15%, Debt/Equity < 0.5',
-      count: 18
-    },
-    {
-      name: 'Breakout Candidates',
-      description: 'Stocks near technical breakout levels',
-      criteria: 'Near 52-week high, Volume surge',
-      count: 31
-    },
-    {
-      name: 'Dividend Aristocrats',
-      description: 'Consistent dividend paying companies',
-      criteria: 'Dividend yield > 2%, 5yr consistency',
-      count: 15
+  useEffect(() => {
+    loadInitialData();
+  }, []);
+
+  const loadInitialData = async () => {
+    if (!AuthClient.token) return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const [presets, stats] = await Promise.all([
+        screenerService.getPresetScreens(),
+        screenerService.getStatistics()
+      ]);
+      
+      setPresetScreens(presets);
+      setStatistics(stats);
+    } catch (error: any) {
+      console.error('Error loading initial data:', error);
+      setError('Failed to load screening data. Please try again.');
+    } finally {
+      setLoading(false);
     }
-  ]);
+  };
+
+  const loadScreenedStocks = async (filterParams: ScreeningFilters = {}) => {
+    if (!AuthClient.token) return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const result = await screenerService.getScreenedStocks({
+        ...filterParams,
+        page: currentPage,
+        limit: 50
+      });
+      
+      setScreenedStocks(result.stocks);
+      setTotalPages(result.pagination.totalPages);
+    } catch (error: any) {
+      console.error('Error loading screened stocks:', error);
+      setError('Failed to load screened stocks. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleFilterChange = (filterType: string, value: any) => {
     setFilters(prev => ({
@@ -116,11 +94,71 @@ const ScreenerTab = () => {
     }
   };
 
+  const handleApplyFilters = async () => {
+    setCurrentPage(1);
+    await loadScreenedStocks(filters);
+  };
+
+  const handleResetFilters = () => {
+    setFilters({
+      marketCap: 'all',
+      sector: 'all',
+      peRatioMin: '',
+      peRatioMax: '',
+      priceChange: 'all',
+      volume: 'all',
+      technicalPattern: 'all'
+    });
+    setCurrentPage(1);
+    loadScreenedStocks({});
+  };
+
+  const handlePresetClick = async (preset: PresetScreen) => {
+    if (preset.filters) {
+      setFilters(preset.filters);
+      setCurrentPage(1);
+      await loadScreenedStocks(preset.filters);
+    }
+  };
+
+  const handleRefresh = async () => {
+    await loadInitialData();
+    await loadScreenedStocks(filters);
+  };
+
+  if (!AuthClient.token) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="text-6xl mb-4">🔒</div>
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">Login Required</h3>
+          <p className="text-gray-600 mb-4">Please log in to access the stock screener</p>
+          <p className="text-sm text-gray-500">Use demo@stockdashboard.com / demo123</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 slide-in">
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Stock Screener</h1>
+        <div className="flex items-center justify-center mb-4">
+          <h1 className="text-3xl font-bold text-gray-900 mr-4">Stock Screener</h1>
+          <button
+            onClick={handleRefresh}
+            disabled={loading}
+            className="p-2 text-gray-600 hover:text-blue-600 transition-colors"
+            title="Refresh data"
+          >
+            {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <RefreshCw className="h-5 w-5" />}
+          </button>
+        </div>
         <p className="text-gray-600">Advanced filtering to find investment opportunities</p>
+        {error && (
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-red-600 text-sm">{error}</p>
+          </div>
+        )}
       </div>
 
       {/* Preset Screens */}
@@ -131,7 +169,11 @@ const ScreenerTab = () => {
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {presetScreens.map((screen, index) => (
-            <div key={index} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all cursor-pointer">
+            <div 
+              key={index} 
+              className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all cursor-pointer"
+              onClick={() => handlePresetClick(screen)}
+            >
               <h4 className="font-semibold text-gray-900 mb-2">{screen.name}</h4>
               <p className="text-sm text-gray-600 mb-2">{screen.description}</p>
               <p className="text-xs text-gray-500 mb-3">{screen.criteria}</p>
@@ -187,15 +229,15 @@ const ScreenerTab = () => {
                 type="number" 
                 placeholder="Min"
                 className="w-full p-2 border border-gray-300 rounded-lg text-sm"
-                value={filters.peRatio.min}
-                onChange={(e) => handleFilterChange('peRatio', {...filters.peRatio, min: e.target.value})}
+                value={filters.peRatioMin}
+                onChange={(e) => handleFilterChange('peRatioMin', e.target.value)}
               />
               <input 
                 type="number" 
                 placeholder="Max"
                 className="w-full p-2 border border-gray-300 rounded-lg text-sm"
-                value={filters.peRatio.max}
-                onChange={(e) => handleFilterChange('peRatio', {...filters.peRatio, max: e.target.value})}
+                value={filters.peRatioMax}
+                onChange={(e) => handleFilterChange('peRatioMax', e.target.value)}
               />
             </div>
           </div>
@@ -242,10 +284,19 @@ const ScreenerTab = () => {
           </div>
         </div>
         <div className="mt-4 flex space-x-2">
-          <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+          <button 
+            onClick={handleApplyFilters}
+            disabled={loading}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin inline mr-2" /> : null}
             Apply Filters
           </button>
-          <button className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+          <button 
+            onClick={handleResetFilters}
+            disabled={loading}
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+          >
             Reset
           </button>
         </div>
@@ -256,6 +307,7 @@ const ScreenerTab = () => {
         <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
           <Search className="h-5 w-5 mr-2 text-purple-600" />
           Screened Results ({screenedStocks.length} stocks)
+          {loading && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
         </h3>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -319,28 +371,30 @@ const ScreenerTab = () => {
       </div>
 
       {/* Screening Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="glass-effect rounded-lg p-4 text-center">
-          <BarChart3 className="h-8 w-8 text-blue-600 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-gray-900">2,847</p>
-          <p className="text-sm text-gray-600">Total Stocks</p>
+      {statistics && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="glass-effect rounded-lg p-4 text-center">
+            <BarChart3 className="h-8 w-8 text-blue-600 mx-auto mb-2" />
+            <p className="text-2xl font-bold text-gray-900">{statistics.totalStocks.toLocaleString()}</p>
+            <p className="text-sm text-gray-600">Total Stocks</p>
+          </div>
+          <div className="glass-effect rounded-lg p-4 text-center">
+            <Search className="h-8 w-8 text-green-600 mx-auto mb-2" />
+            <p className="text-2xl font-bold text-gray-900">{statistics.filteredResults}</p>
+            <p className="text-sm text-gray-600">Filtered Results</p>
+          </div>
+          <div className="glass-effect rounded-lg p-4 text-center">
+            <TrendingUp className="h-8 w-8 text-purple-600 mx-auto mb-2" />
+            <p className="text-2xl font-bold text-gray-900">{statistics.bullishSignals}</p>
+            <p className="text-sm text-gray-600">Bullish Signals</p>
+          </div>
+          <div className="glass-effect rounded-lg p-4 text-center">
+            <Target className="h-8 w-8 text-yellow-600 mx-auto mb-2" />
+            <p className="text-2xl font-bold text-gray-900">{statistics.highConfidence}</p>
+            <p className="text-sm text-gray-600">High Confidence</p>
+          </div>
         </div>
-        <div className="glass-effect rounded-lg p-4 text-center">
-          <Search className="h-8 w-8 text-green-600 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-gray-900">156</p>
-          <p className="text-sm text-gray-600">Filtered Results</p>
-        </div>
-        <div className="glass-effect rounded-lg p-4 text-center">
-          <TrendingUp className="h-8 w-8 text-purple-600 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-gray-900">89</p>
-          <p className="text-sm text-gray-600">Bullish Signals</p>
-        </div>
-        <div className="glass-effect rounded-lg p-4 text-center">
-          <Target className="h-8 w-8 text-yellow-600 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-gray-900">23</p>
-          <p className="text-sm text-gray-600">High Confidence</p>
-        </div>
-      </div>
+      )}
     </div>
   );
 };

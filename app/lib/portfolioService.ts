@@ -206,7 +206,7 @@ class PortfolioService {
       if (stored) {
         try {
           this.portfolios = JSON.parse(stored);
-        } catch (error) {
+        } catch (error: any) {
           console.error('Error loading portfolios from storage:', error);
         }
       }
