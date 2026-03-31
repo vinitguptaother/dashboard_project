@@ -24,6 +24,15 @@ const screenBatchSchema = new mongoose.Schema({
     prevClose: Number,
     percentChange: Number,
     score: Number,
+    aiScore: Number,
+    aiBreakdown: {
+      health: Number,
+      growth: Number,
+      valuation: Number,
+      technical: Number,
+      momentum: Number,
+      reason: String
+    },
     source: String,   // 'upstox' or 'yahoo' — tells us where the price came from
     error: String
   }],

@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
 :root {
   --primary: #1e40af;
   --primary-dark: #1e3a8a;
@@ -73,4 +75,258 @@ body {
 
 .slide-in {
   animation: slideIn 0.5s ease-out;
+}
+
+/* ══════════════════════════════════════════════
+   LOVABLE PREMIUM UTILITIES
+   ══════════════════════════════════════════════ */
+
+.font-mono-nums {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-glow {
+  text-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+}
+
+.badge-success {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #16a34a;
+  border-radius: 9999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(22, 163, 74, 0.1);
+  color: #16a34a;
+}
+
+.badge-destructive {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #dc2626;
+  border-radius: 9999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
+}
+
+.badge-warning {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #d97706;
+  border-radius: 9999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(217, 119, 6, 0.1);
+  color: #d97706;
+}
+
+.badge-primary {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #3b82f6;
+  border-radius: 9999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+
+.pulse-dot {
+  animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.shadow-glow {
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.2);
+}
+
+.accent-left {
+  border-left: 3px solid #3b82f6;
+}
+
+/* ══════════════════════════════════════════════
+   DARK MODE — Overrides all existing Tailwind classes
+   Light mode stays EXACTLY as-is (zero changes)
+   ══════════════════════════════════════════════ */
+
+/* Body & page background */
+.dark body,
+html.dark body {
+  background: #0d0f17 !important;
+  color: #e5e7eb !important;
+}
+
+html.dark .bg-gradient-to-br.from-slate-50.to-blue-50,
+html.dark .min-h-screen {
+  background: #0d0f17 !important;
+}
+
+/* Glass effect → dark glass */
+html.dark .glass-effect {
+  background: rgba(18, 23, 38, 0.85) !important;
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+html.dark .glass-effect:hover {
+  border-color: rgba(59, 130, 246, 0.2) !important;
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.06);
+}
+
+/* Gradient text stays visible on dark */
+html.dark .gradient-text {
+  background: linear-gradient(135deg, #60a5fa 0%, #34d399 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+html.dark .metric-glow {
+  text-shadow: 0 0 24px rgba(59, 130, 246, 0.5);
+}
+
+/* ── Background overrides ── */
+html.dark .bg-white { background-color: #121726 !important; }
+html.dark .bg-gray-50 { background-color: #19203a !important; }
+html.dark .bg-gray-100 { background-color: #19203a !important; }
+html.dark .bg-green-50 { background-color: rgba(22, 163, 74, 0.08) !important; }
+html.dark .bg-green-100 { background-color: rgba(22, 163, 74, 0.15) !important; }
+html.dark .bg-red-50 { background-color: rgba(220, 38, 38, 0.08) !important; }
+html.dark .bg-red-100 { background-color: rgba(220, 38, 38, 0.15) !important; }
+html.dark .bg-amber-50 { background-color: rgba(217, 119, 6, 0.08) !important; }
+html.dark .bg-amber-100 { background-color: rgba(217, 119, 6, 0.12) !important; }
+html.dark .bg-blue-50 { background-color: rgba(59, 130, 246, 0.08) !important; }
+html.dark .bg-blue-100 { background-color: rgba(59, 130, 246, 0.12) !important; }
+html.dark .bg-purple-50 { background-color: rgba(139, 92, 246, 0.08) !important; }
+html.dark .bg-indigo-50 { background-color: rgba(99, 102, 241, 0.08) !important; }
+html.dark .bg-orange-50 { background-color: rgba(249, 115, 22, 0.08) !important; }
+html.dark .bg-yellow-50 { background-color: rgba(234, 179, 8, 0.08) !important; }
+html.dark .bg-cyan-50 { background-color: rgba(6, 182, 212, 0.08) !important; }
+
+/* ── Text overrides ── */
+html.dark .text-gray-900 { color: #f3f4f6 !important; }
+html.dark .text-gray-800 { color: #e5e7eb !important; }
+html.dark .text-gray-700 { color: #d1d5db !important; }
+html.dark .text-gray-600 { color: #9ca3af !important; }
+html.dark .text-gray-500 { color: #6b7280 !important; }
+html.dark .text-gray-400 { color: #6b7280 !important; }
+
+/* ── Border overrides ── */
+html.dark .border-gray-200 { border-color: rgba(255, 255, 255, 0.06) !important; }
+html.dark .border-gray-300 { border-color: rgba(255, 255, 255, 0.08) !important; }
+html.dark .border-green-200 { border-color: rgba(22, 163, 74, 0.25) !important; }
+html.dark .border-red-200 { border-color: rgba(220, 38, 38, 0.25) !important; }
+html.dark .border-orange-200 { border-color: rgba(249, 115, 22, 0.25) !important; }
+html.dark .border-blue-200 { border-color: rgba(59, 130, 246, 0.2) !important; }
+html.dark .border-amber-200 { border-color: rgba(217, 119, 6, 0.2) !important; }
+html.dark .divide-gray-200 > * + * { border-color: rgba(255, 255, 255, 0.06) !important; }
+
+/* ── Hover overrides ── */
+html.dark .hover\:bg-gray-50:hover { background-color: rgba(59, 130, 246, 0.06) !important; }
+html.dark .hover\:bg-blue-50:hover { background-color: rgba(59, 130, 246, 0.1) !important; }
+html.dark .hover\:bg-gray-100:hover { background-color: rgba(59, 130, 246, 0.08) !important; }
+html.dark .hover\:bg-red-200:hover { background-color: rgba(220, 38, 38, 0.15) !important; }
+
+/* ── Shadow overrides ── */
+html.dark .shadow-lg { box-shadow: 0 4px 25px rgba(0, 0, 0, 0.4) !important; }
+html.dark .shadow-md { box-shadow: 0 2px 15px rgba(0, 0, 0, 0.35) !important; }
+html.dark .shadow-sm { box-shadow: 0 1px 6px rgba(0, 0, 0, 0.3) !important; }
+
+/* ── Ring/focus overrides ── */
+html.dark .ring-1.ring-gray-200 { --tw-ring-color: rgba(255, 255, 255, 0.06) !important; }
+html.dark .focus\:ring-blue-500:focus { --tw-ring-color: rgba(59, 130, 246, 0.5) !important; }
+
+/* ── Form input overrides ── */
+html.dark input,
+html.dark textarea,
+html.dark select {
+  background-color: #19203a !important;
+  color: #e5e7eb !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #6b7280 !important;
+}
+
+/* ── Scrollbar dark ── */
+html.dark ::-webkit-scrollbar { width: 6px; height: 6px; }
+html.dark ::-webkit-scrollbar-track { background: #0d0f17; }
+html.dark ::-webkit-scrollbar-thumb { background: #252a38; border-radius: 3px; }
+html.dark ::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
+
+/* ── Table specific ── */
+html.dark thead.bg-gray-50 { background-color: #19203a !important; }
+html.dark tbody.bg-white { background-color: #121726 !important; }
+html.dark tr.hover\:bg-gray-50:hover { background-color: rgba(59, 130, 246, 0.06) !important; }
+
+/* ── Status badge overrides for dark ── */
+html.dark .bg-green-100.text-green-800 { background-color: rgba(22, 163, 74, 0.15) !important; color: #4ade80 !important; }
+html.dark .bg-red-100.text-red-800 { background-color: rgba(220, 38, 38, 0.15) !important; color: #f87171 !important; }
+html.dark .bg-green-100.text-green-700 { background-color: rgba(22, 163, 74, 0.15) !important; color: #4ade80 !important; }
+html.dark .bg-red-100.text-red-700 { background-color: rgba(220, 38, 38, 0.15) !important; color: #f87171 !important; }
+
+/* ── Accent left in dark ── */
+html.dark .accent-left { border-left-color: #3b82f6; }
+
+/* ── Navigation dark overrides ── */
+html.dark .text-gray-600.hover\:bg-blue-50.hover\:text-blue-600:hover {
+  background-color: rgba(59, 130, 246, 0.1) !important;
+}
+
+/* ── System bar ── */
+.system-bar {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  font-size: 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+html.dark .system-bar {
+  background: rgba(18, 23, 38, 0.5);
+  border-bottom-color: rgba(255, 255, 255, 0.04);
+}
+
+/* ── Theme toggle button ── */
+.theme-toggle {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+html.dark .theme-toggle {
+  background: #19203a;
+  color: #fbbf24;
+}
+
+.theme-toggle:hover {
+  background: #e2e8f0;
+}
+
+html.dark .theme-toggle:hover {
+  background: #252a38;
 }

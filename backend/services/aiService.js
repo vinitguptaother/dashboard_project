@@ -2,6 +2,7 @@ const axios = require('axios');
 const marketDataService = require('./marketDataService');
 const newsService = require('./newsService');
 const { apiLogger } = require('../middleware/logger');
+const trackAPI = require('../utils/trackAPI');
 
 class AIService {
   constructor() {
@@ -9,6 +10,10 @@ class AIService {
     this.baseURL = 'https://api.perplexity.ai/chat/completions';
     this.cache = new Map();
     this.cacheTimeout = 300000; // 5 minutes cache for AI responses
+    // Market context cache — 10 minutes, shared across all AI prompts
+    this.marketContextCache = null;
+    this.marketContextCacheTime = 0;
+    this.MARKET_CONTEXT_TTL = 600000; // 10 minutes
   }
 
   // Enhanced AI Chat with Real-time Market Context
@@ -57,78 +62,154 @@ Format your response in a structured, professional manner. Include specific numb
     }
   }
 
-  // Get Real-time Market Context
+  // Get Real-time Market Context (cached for 10 minutes)
+  // Used by: stock recommendations, screen ranking, trade setup generation, chatbot
   async getMarketContext() {
+    // Return cached version if fresh
+    if (this.marketContextCache && (Date.now() - this.marketContextCacheTime < this.MARKET_CONTEXT_TTL)) {
+      return this.marketContextCache;
+    }
+
     try {
-      // Get major indices
-      const indices = ['NIFTY', 'SENSEX', 'BANKNIFTY'];
-      const marketData = await marketDataService.getBatchMarketData(indices);
-      
-      // Get top stocks
-      const topStocks = ['RELIANCE', 'TCS', 'HDFC', 'INFY', 'ICICIBANK'];
-      const stockData = await marketDataService.getBatchMarketData(topStocks);
-      
-      // Format market context
-      let context = "LIVE MARKET DATA:\n\n";
-      
-      // Add indices data
-      context += "MAJOR INDICES:\n";
-      indices.forEach(symbol => {
-        const data = marketData[symbol];
-        if (data && data.status === 'success') {
-          const stock = data.data;
-          context += `${symbol}: ₹${stock.price} (${stock.change >= 0 ? '+' : ''}${stock.change}, ${stock.changePercent}%)\n`;
+      // ── Fetch all data in parallel ──
+      const [niftyData, vixData, indexLTP] = await Promise.allSettled([
+        // NIFTY 50 — 1-month daily chart for 5d/20d trend
+        axios.get('https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI', {
+          params: { interval: '1d', range: '1mo' },
+          timeout: 8000
+        }),
+        // India VIX — current value
+        axios.get('https://query1.finance.yahoo.com/v8/finance/chart/%5EINDIAVIX', {
+          params: { interval: '1d', range: '5d' },
+          timeout: 8000
+        }),
+        // Live index prices from Upstox (already connected)
+        this._getIndexLTP()
+      ]);
+
+      // ── Parse NIFTY chart data ──
+      let niftyPrice = null, nifty5dChange = null, nifty20dChange = null, niftyTodayChange = null;
+      if (niftyData.status === 'fulfilled') {
+        const chart = niftyData.value.data?.chart?.result?.[0];
+        if (chart) {
+          const closes = chart.indicators?.quote?.[0]?.close?.filter(c => c != null) || [];
+          const meta = chart.meta;
+          niftyPrice = meta?.regularMarketPrice || closes[closes.length - 1];
+          const prevClose = meta?.chartPreviousClose || meta?.previousClose;
+          if (niftyPrice && prevClose) {
+            niftyTodayChange = ((niftyPrice - prevClose) / prevClose * 100).toFixed(2);
+          }
+          if (closes.length >= 6) {
+            const price5dAgo = closes[closes.length - 6];
+            nifty5dChange = ((niftyPrice - price5dAgo) / price5dAgo * 100).toFixed(2);
+          }
+          if (closes.length >= 20) {
+            const price20dAgo = closes[closes.length - 20];
+            nifty20dChange = ((niftyPrice - price20dAgo) / price20dAgo * 100).toFixed(2);
+          }
         }
-      });
-      
-      // Add top stocks data
-      context += "\nTOP STOCKS:\n";
-      topStocks.forEach(symbol => {
-        const data = stockData[symbol];
-        if (data && data.status === 'success') {
-          const stock = data.data;
-          context += `${symbol}: ₹${stock.price} (${stock.change >= 0 ? '+' : ''}${stock.change}, ${stock.changePercent}%)\n`;
+      }
+
+      // ── Parse India VIX ──
+      let vixValue = null, vixLabel = '';
+      if (vixData.status === 'fulfilled') {
+        const chart = vixData.value.data?.chart?.result?.[0];
+        if (chart) {
+          vixValue = chart.meta?.regularMarketPrice;
+          if (!vixValue) {
+            const closes = chart.indicators?.quote?.[0]?.close?.filter(c => c != null) || [];
+            vixValue = closes[closes.length - 1];
+          }
+          if (vixValue) {
+            vixValue = parseFloat(vixValue).toFixed(2);
+            if (vixValue < 15) vixLabel = 'LOW — market calm';
+            else if (vixValue < 20) vixLabel = 'MODERATE — normal volatility';
+            else if (vixValue < 25) vixLabel = 'HIGH — caution advised';
+            else vixLabel = 'VERY HIGH — extreme fear, avoid aggressive buys';
+          }
         }
+      }
+
+      // ── Parse live index prices from Upstox ──
+      let sensexStr = '', bankNiftyStr = '';
+      if (indexLTP.status === 'fulfilled' && indexLTP.value) {
+        const ltp = indexLTP.value;
+        if (ltp.SENSEX) sensexStr = `SENSEX: ₹${Math.round(ltp.SENSEX).toLocaleString('en-IN')}`;
+        if (ltp.BANKNIFTY) bankNiftyStr = `BANK NIFTY: ₹${Math.round(ltp.BANKNIFTY).toLocaleString('en-IN')}`;
+      }
+
+      // ── Determine Market Regime ──
+      const regime = this._classifyRegime(niftyTodayChange, nifty5dChange, nifty20dChange, vixValue);
+
+      // ── Build context string ──
+      let context = '── MARKET CONTEXT (DO NOT IGNORE) ──\n';
+      if (niftyPrice) {
+        context += `NIFTY 50: ₹${Math.round(niftyPrice).toLocaleString('en-IN')}`;
+        if (niftyTodayChange) context += ` (${niftyTodayChange >= 0 ? '+' : ''}${niftyTodayChange}% today`;
+        if (nifty5dChange) context += `, ${nifty5dChange >= 0 ? '+' : ''}${nifty5dChange}% 5-day`;
+        if (nifty20dChange) context += `, ${nifty20dChange >= 0 ? '+' : ''}${nifty20dChange}% 20-day`;
+        if (niftyTodayChange) context += ')';
+        context += '\n';
+      }
+      if (sensexStr) context += sensexStr + '\n';
+      if (bankNiftyStr) context += bankNiftyStr + '\n';
+      if (vixValue) context += `India VIX: ${vixValue} (${vixLabel})\n`;
+      context += `Market Regime: ${regime}\n`;
+      context += '── Factor this into your analysis. Be cautious if VIX > 20 or regime is BEARISH ──\n';
+
+      // Cache it
+      this.marketContextCache = context;
+      this.marketContextCacheTime = Date.now();
+
+      apiLogger.info('AIService', 'getMarketContext', {
+        niftyPrice, niftyTodayChange, nifty5dChange, vixValue, regime
       });
-      
-      // Add market sentiment
-      const marketSentiment = this.calculateMarketSentiment(marketData, stockData);
-      context += `\nMARKET SENTIMENT: ${marketSentiment}\n`;
-      
+
       return context;
 
     } catch (error) {
       apiLogger.error('AIService', 'getMarketContext', error);
-      return "Market data temporarily unavailable.";
+      return 'Market data temporarily unavailable.\n';
     }
   }
 
-  // Calculate Market Sentiment from Real Data
-  calculateMarketSentiment(indicesData, stockData) {
-    let positiveCount = 0;
-    let totalCount = 0;
-    
-    // Check indices sentiment
-    Object.values(indicesData).forEach(data => {
-      if (data.status === 'success') {
-        totalCount++;
-        if (data.data.changePercent > 0) positiveCount++;
+  // Classify overall market regime from NIFTY trends and VIX
+  _classifyRegime(todayPct, fiveDayPct, twentyDayPct, vix) {
+    const t = parseFloat(todayPct) || 0;
+    const f = parseFloat(fiveDayPct) || 0;
+    const tw = parseFloat(twentyDayPct) || 0;
+    const v = parseFloat(vix) || 15;
+
+    // High VIX overrides everything
+    if (v >= 25) return 'VOLATILE — extreme fear, tighten stop losses, avoid new aggressive positions';
+    if (v >= 20 && (t < -1 || f < -3)) return 'BEARISH — falling market with high volatility, prefer cash or hedged positions';
+
+    // Trend-based classification
+    if (tw > 3 && f > 1 && t > -0.5) return 'BULLISH — uptrend across timeframes, favorable for BUY setups';
+    if (tw < -3 && f < -1 && t < 0.5) return 'BEARISH — downtrend across timeframes, prefer HOLD/SELL, avoid catching falling knives';
+    if (tw < -3 && f > 0) return 'RECOVERING — recent bounce after correction, be selective with entries';
+    if (tw > 3 && f < 0) return 'CORRECTING — pullback in an uptrend, good for ACCUMULATE if fundamentals are strong';
+
+    return 'SIDEWAYS — no clear trend, be selective and keep tight stop losses';
+  }
+
+  // Fetch live index LTP from Upstox (best-effort, non-critical)
+  async _getIndexLTP() {
+    try {
+      const upstoxService = require('./upstoxService');
+      if (!upstoxService || !upstoxService.fetchStockQuote) return null;
+      const results = {};
+      const symbols = ['SENSEX', 'BANKNIFTY'];
+      for (const sym of symbols) {
+        try {
+          const data = await upstoxService.fetchStockQuote(sym);
+          if (data && data.price) results[sym] = data.price;
+        } catch (e) { /* skip */ }
       }
-    });
-    
-    // Check stocks sentiment
-    Object.values(stockData).forEach(data => {
-      if (data.status === 'success') {
-        totalCount++;
-        if (data.data.changePercent > 0) positiveCount++;
-      }
-    });
-    
-    const positiveRatio = positiveCount / totalCount;
-    
-    if (positiveRatio >= 0.7) return "BULLISH";
-    if (positiveRatio >= 0.4) return "NEUTRAL";
-    return "BEARISH";
+      return Object.keys(results).length > 0 ? results : null;
+    } catch (e) {
+      return null;
+    }
   }
 
   // AI-Powered Stock Analysis with Real-time Data
@@ -406,7 +487,9 @@ Provide comprehensive portfolio analysis in JSON:
       });
 
       const aiResponse = response.data.choices?.[0]?.message?.content;
-      
+      const usage = response.data.usage || {};
+      trackAPI('perplexity', 'ai-service', { inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens, success: true, model });
+
       if (!aiResponse) {
         throw new Error('No response from AI service');
       }
@@ -414,6 +497,7 @@ Provide comprehensive portfolio analysis in JSON:
       return aiResponse;
 
     } catch (error) {
+      trackAPI('perplexity', 'ai-service', { success: false, model });
       if (error.response) {
         apiLogger.error('AIService', 'callPerplexityAPI', {
           status: error.response.status,

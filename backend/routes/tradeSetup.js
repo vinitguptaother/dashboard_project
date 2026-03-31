@@ -7,6 +7,8 @@ const { body, validationResult } = require('express-validator');
 const axios = require('axios');
 const TradeSetup = require('../models/TradeSetup');
 const { apiLogger } = require('../middleware/logger');
+const aiService = require('../services/aiService');
+const trackAPI = require('../utils/trackAPI');
 
 const router = express.Router();
 
@@ -50,12 +52,16 @@ async function callPerplexity(apiKey, prompt) {
           timeout: 45000, // 45s — this prompt is larger
         }
       );
-      return response.data.choices?.[0]?.message?.content || '';
+      const content = response.data.choices?.[0]?.message?.content || '';
+      const usage = response.data.usage || {};
+      trackAPI('perplexity', 'trade-setup', { inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens, success: true, model });
+      return content;
     } catch (err) {
       lastError = err;
       const status = err.response?.status;
       const errMsg = err.response?.data?.error?.message || err.message;
       apiLogger.error('TradeSetup', `callPerplexity:${model}:failed`, null, { status, errMsg });
+      trackAPI('perplexity', 'trade-setup', { success: false, model });
       // If it's a 401/403 (auth issue), try next model
       if (status === 401 || status === 403) continue;
       // For other errors (timeout, 429, 500), don't retry with a different model
@@ -146,7 +152,12 @@ router.post(
 
       const symbolList = cleanSymbols.join(', ');
 
-      const prompt = `${performanceContext}Generate detailed trade setups for these Indian stocks: ${symbolList}
+      // Fetch market context (cached 10 min — adds NIFTY trend, VIX, regime)
+      let marketContext = '';
+      try { marketContext = await aiService.getMarketContext(); } catch (e) { /* non-critical */ }
+
+      const prompt = `${marketContext}
+${performanceContext}Generate detailed trade setups for these Indian stocks: ${symbolList}
 
 For EACH stock, determine if it's better suited for a swing trade (2 days to 6 months) or long-term investment (6+ months).
 
@@ -192,9 +203,31 @@ RULES:
         });
       }
 
-      // Calculate risk/reward ratio and save to MongoDB
+      // ── Duplicate detection: find existing ACTIVE trades for these symbols ──
+      const existingActives = await TradeSetup.find({
+        symbol: { $in: cleanSymbols },
+        status: 'ACTIVE',
+        action: { $in: ['BUY', 'SELL', 'ACCUMULATE'] },
+      }).lean();
+
+      // Map: SYMBOL → existing active trade (prefer same screen, fallback any)
+      const existingBySymbol = new Map();
+      for (const trade of existingActives) {
+        const sym = trade.symbol.toUpperCase();
+        const existing = existingBySymbol.get(sym);
+        // Prefer match from same screen
+        if (!existing || (trade.screenName === screenName && existing.screenName !== screenName)) {
+          existingBySymbol.set(sym, trade);
+        }
+      }
+
+      // Calculate risk/reward ratio and save to MongoDB (with duplicate detection)
       const savedSetups = [];
+      const updatedSetups = [];
+      const skippedSetups = [];
+
       for (const setup of rawSetups) {
+        const symbol = (setup.symbol || '').toUpperCase();
         const entry = Number(setup.entryPrice) || 0;
         const sl = Number(setup.stopLoss) || 0;
         const target = Number(setup.target) || 0;
@@ -208,8 +241,63 @@ RULES:
           }
         }
 
+        // ── Check for existing ACTIVE trade ──
+        const existing = existingBySymbol.get(symbol);
+        if (existing) {
+          // Already in an active trade — check if SL or Target changed
+          const oldSL = existing.stopLoss;
+          const oldTarget = existing.target;
+          const slChanged = sl > 0 && Math.abs(sl - oldSL) > 0.5;
+          const targetChanged = target > 0 && Math.abs(target - oldTarget) > 0.5;
+
+          if (slChanged || targetChanged) {
+            // Update existing trade with new SL/Target, preserve entry price
+            const updateFields = {};
+            const changes = [];
+            if (slChanged) {
+              updateFields.stopLoss = sl;
+              changes.push(`SL: ₹${oldSL.toFixed(2)} → ₹${sl.toFixed(2)}`);
+            }
+            if (targetChanged) {
+              updateFields.target = target;
+              changes.push(`Target: ₹${oldTarget.toFixed(2)} → ₹${target.toFixed(2)}`);
+            }
+            // Recalculate R:R with existing entry + new SL/target
+            const newSL = slChanged ? sl : oldSL;
+            const newTarget = targetChanged ? target : oldTarget;
+            const risk = Math.abs(existing.entryPrice - newSL);
+            const reward = Math.abs(newTarget - existing.entryPrice);
+            if (risk > 0) {
+              updateFields.riskRewardRatio = `1:${(reward / risk).toFixed(1)}`;
+            }
+            // Append update reason to reasoning
+            const updateNote = `\n\n📝 Updated ${new Date().toLocaleDateString('en-IN')}: ${changes.join(', ')}. Reason: ${setup.reasoning || 'Fresh AI analysis'}`;
+            updateFields.reasoning = (existing.reasoning || '') + updateNote;
+            updateFields.confidence = Math.min(100, Math.max(0, Number(setup.confidence) || existing.confidence));
+
+            await TradeSetup.findByIdAndUpdate(existing._id, { $set: updateFields });
+
+            updatedSetups.push({
+              ...existing,
+              ...updateFields,
+              _updated: true,
+              _changes: changes,
+              _oldSL: oldSL,
+              _oldTarget: oldTarget,
+            });
+          } else {
+            // No meaningful change — skip entirely
+            skippedSetups.push({
+              symbol,
+              reason: `Already active from ${existing.screenName || 'another screen'} (entry ₹${existing.entryPrice})`,
+            });
+          }
+          continue; // Don't create new trade
+        }
+
+        // ── No existing trade — create new one ──
         const doc = new TradeSetup({
-          symbol: (setup.symbol || '').toUpperCase(),
+          symbol,
           tradeType: setup.tradeType === 'INVESTMENT' ? 'INVESTMENT' : 'SWING',
           action: ['BUY', 'SELL', 'HOLD', 'AVOID'].includes(setup.action) ? setup.action : 'HOLD',
           entryPrice: entry,
@@ -231,19 +319,24 @@ RULES:
           savedSetups.push(saved);
         } catch (saveErr) {
           apiLogger.error('TradeSetup', 'generate:saveFail', saveErr, { symbol: setup.symbol });
-          // Still include in response even if save fails
           savedSetups.push({ ...doc.toObject(), _saveError: true });
         }
       }
 
       apiLogger.info('TradeSetup', 'generate:complete', {
         requested: cleanSymbols.length,
-        generated: savedSetups.length,
+        newTrades: savedSetups.length,
+        updated: updatedSetups.length,
+        skipped: skippedSetups.length,
       });
 
       res.json({
         status: 'success',
-        data: { setups: savedSetups },
+        data: {
+          setups: savedSetups,
+          updated: updatedSetups,
+          skipped: skippedSetups,
+        },
       });
     } catch (error) {
       apiLogger.error('TradeSetup', 'generate', error);
@@ -371,6 +464,24 @@ router.patch('/:id/edit', async (req, res) => {
   } catch (error) {
     apiLogger.error('TradeSetup', 'edit', error);
     res.status(500).json({ status: 'error', message: 'Failed to edit setup' });
+  }
+});
+
+// ─────────────────────────────────────────────
+// DELETE /api/trade-setup/:id
+// Permanently delete a paper trade
+// ─────────────────────────────────────────────
+router.delete('/:id', async (req, res) => {
+  try {
+    const deleted = await TradeSetup.findByIdAndDelete(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ status: 'error', message: 'Trade setup not found' });
+    }
+    apiLogger.info('TradeSetup', 'delete', { id: deleted._id, symbol: deleted.symbol });
+    res.json({ status: 'success', data: { id: deleted._id, symbol: deleted.symbol } });
+  } catch (error) {
+    apiLogger.error('TradeSetup', 'delete', error);
+    res.status(500).json({ status: 'error', message: 'Failed to delete trade setup' });
   }
 });
 

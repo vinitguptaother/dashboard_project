@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Settings, User, Bell, Shield, Palette, Database, Download, Key, CheckCircle, Save } from 'lucide-react';
+import { Settings, User, Bell, Shield, Palette, Database, Download, Key, CheckCircle, Save, Activity } from 'lucide-react';
 import { AuthClient } from '../lib/apiService';
 import APIKeysTab from './APIKeysTab';
 
@@ -50,6 +50,8 @@ const SettingsTab = () => {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [changePwForm, setChangePwForm] = useState({ current: '', newPw: '', confirm: '' });
   const [pwMessage, setPwMessage] = useState<string | null>(null);
+  const [apiUsage, setApiUsage] = useState<any>(null);
+  const [apiUsageLoading, setApiUsageLoading] = useState(false);
 
   // Load settings from localStorage on mount
   useEffect(() => {
@@ -80,7 +82,8 @@ const SettingsTab = () => {
     { id: 'trading', label: 'Trading', icon: Settings },
     { id: 'display', label: 'Display', icon: Palette },
     { id: 'security', label: 'Security', icon: Shield },
-    { id: 'data', label: 'Data & Export', icon: Database }
+    { id: 'data', label: 'Data & Export', icon: Database },
+    { id: 'api-usage', label: 'API Usage', icon: Activity }
   ];
 
   const handleSettingChange = (section: string, key: string, value: any) => {
@@ -637,6 +640,113 @@ const SettingsTab = () => {
     </div>
   );
 
+  const fetchApiUsage = async () => {
+    setApiUsageLoading(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/api-usage/summary`);
+      const json = await res.json();
+      if (json.status === 'success') setApiUsage(json.data);
+    } catch (err) {
+      console.error('Failed to fetch API usage:', err);
+    } finally {
+      setApiUsageLoading(false);
+    }
+  };
+
+  const renderAPIUsage = () => {
+    if (!apiUsage && !apiUsageLoading) fetchApiUsage();
+
+    const fmtCost = (v: number) => v < 0.01 ? `$${v.toFixed(4)}` : `$${v.toFixed(2)}`;
+    const fmtINR = (v: number) => `₹${(v * 85).toFixed(2)}`; // approx USD→INR
+
+    const cards = apiUsage ? [
+      { label: "Today's Calls", value: apiUsage.today?.calls || 0, sub: fmtCost(apiUsage.today?.cost || 0) },
+      { label: "This Week", value: apiUsage.week?.calls || 0, sub: fmtCost(apiUsage.week?.cost || 0) },
+      { label: "All Time", value: apiUsage.allTime?.calls || 0, sub: fmtCost(apiUsage.allTime?.cost || 0) },
+      { label: "Weekly Cost (INR)", value: fmtINR(apiUsage.week?.cost || 0), sub: `${((apiUsage.week?.inputTokens || 0) + (apiUsage.week?.outputTokens || 0)).toLocaleString()} tokens` },
+    ] : [];
+
+    const endpointNames: Record<string, string> = {
+      'stock-fundamentals': 'Stock Fundamentals',
+      'stock-news': 'Stock News',
+      'stock-recommendation': 'AI Recommendation',
+      'screen-ranking': 'Screen Ranking',
+      'trade-setup': 'Trade Setup',
+      'ai-analysis': 'AI Analysis Tab',
+      'ai-service': 'AI Chatbot',
+      'perplexity-proxy': 'Perplexity Proxy',
+    };
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-900">API Usage Tracker</h3>
+          <button onClick={fetchApiUsage} className="text-sm text-blue-600 hover:text-blue-800 font-medium">
+            Refresh
+          </button>
+        </div>
+        <p className="text-sm text-gray-500">Tracks Perplexity AI calls only (Upstox & Yahoo Finance are free)</p>
+
+        {apiUsageLoading && <p className="text-gray-500">Loading...</p>}
+
+        {apiUsage && (
+          <>
+            {/* Summary Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {cards.map((card, i) => (
+                <div key={i} className="bg-gray-50 rounded-lg p-4 text-center border border-gray-200">
+                  <div className="text-2xl font-bold text-gray-900 font-mono">{card.value}</div>
+                  <div className="text-xs text-gray-500 mt-1">{card.label}</div>
+                  <div className="text-xs text-green-600 font-medium mt-0.5">{card.sub}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Top Endpoints */}
+            {apiUsage.topEndpoints?.length > 0 && (
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">Usage by Feature</h4>
+                <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="text-left px-4 py-2 text-gray-600 font-medium">Feature</th>
+                        <th className="text-right px-4 py-2 text-gray-600 font-medium">Calls</th>
+                        <th className="text-right px-4 py-2 text-gray-600 font-medium">Est. Cost</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {apiUsage.topEndpoints.map((ep: any, i: number) => (
+                        <tr key={i} className="border-t border-gray-100">
+                          <td className="px-4 py-2 text-gray-900">{endpointNames[ep.endpoint] || ep.endpoint}</td>
+                          <td className="px-4 py-2 text-right font-mono text-gray-700">{ep.calls}</td>
+                          <td className="px-4 py-2 text-right font-mono text-green-700">{fmtCost(ep.cost)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Token breakdown */}
+            <div className="text-xs text-gray-400 mt-4 space-y-1">
+              <p>All-time tokens: {(apiUsage.allTime?.inputTokens || 0).toLocaleString()} input + {(apiUsage.allTime?.outputTokens || 0).toLocaleString()} output</p>
+              <p>Pricing: sonar-pro $0.003/1K input, $0.015/1K output | Logs auto-delete after 90 days</p>
+            </div>
+          </>
+        )}
+
+        {!apiUsage && !apiUsageLoading && (
+          <div className="text-center py-8 text-gray-400">
+            <Activity className="w-12 h-12 mx-auto mb-3 opacity-50" />
+            <p>No API usage data yet. Search a stock to start tracking!</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderActiveSection = () => {
     switch (activeSection) {
       case 'profile': return renderProfileSettings();
@@ -646,6 +756,7 @@ const SettingsTab = () => {
       case 'display': return renderDisplaySettings();
       case 'security': return renderSecuritySettings();
       case 'data': return renderDataSettings();
+      case 'api-usage': return renderAPIUsage();
       default: return renderProfileSettings();
     }
   };

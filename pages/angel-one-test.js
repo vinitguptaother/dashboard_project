@@ -324,7 +324,7 @@ export default function AngelOneTest() {
                   </div>
                 ) : (
                   <div className="text-gray-500">
-                    Click "Refresh All" to load data
+                    Click &quot;Refresh All&quot; to load data
                   </div>
                 )}
               </div>

@@ -7,12 +7,24 @@ import * as XLSX from 'xlsx';
 
 const BACKEND_URL = 'http://localhost:5002';
 
+interface AIBreakdown {
+  health: number;
+  growth: number;
+  valuation: number;
+  technical: number;
+  orderFlow: number;
+  institutional: number;
+  reason: string;
+}
+
 interface RankedSymbol {
   symbol: string;
   lastPrice: number | null;
   prevClose: number | null;
   percentChange: number | null;
   score: number;
+  aiScore?: number;
+  aiBreakdown?: AIBreakdown | null;
   error?: string;
 }
 
@@ -85,6 +97,7 @@ const ScreensTab = () => {
   const [isGeneratingSetups, setIsGeneratingSetups] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
   const [setupCount, setSetupCount] = useState(5); // How many top stocks to generate setups for
+  const [duplicateInfo, setDuplicateInfo] = useState<{updated: any[], skipped: any[]}>({ updated: [], skipped: [] });
   const [recommendations, setRecommendations] = useState<any>(null);
   const [loadingRecs, setLoadingRecs] = useState(false);
 
@@ -186,6 +199,15 @@ const ScreensTab = () => {
     setSelectedScreenId(screenId);
     const screen = screens.find(s => s.id === screenId);
     if (screen) setEditableQueryText(screen.queryText);
+    // Clear previous screen's data to avoid stale state
+    setLocalBatchStocks([]);
+    setRankedResults([]);
+    setTradeSetups([]);
+    setRankingError(null);
+    setSetupError(null);
+    setSaveWarning(null);
+    localStorage.removeItem('screenBatch');
+    localStorage.removeItem('screenBatchImportInfo');
   };
 
   const handleAddScreen = () => {
@@ -386,6 +408,8 @@ const ScreensTab = () => {
             prevClose: r.prevClose ?? null,
             percentChange: r.percentChange ?? null,
             score: r.score ?? 0,
+            aiScore: r.aiScore ?? 0,
+            aiBreakdown: r.aiBreakdown || null,
             error: r.error || undefined,
           }));
           setRankedResults(ranked);
@@ -456,6 +480,7 @@ const ScreensTab = () => {
     setIsGeneratingSetups(true);
     setSetupError(null);
     setTradeSetups([]);
+    setDuplicateInfo({ updated: [], skipped: [] });
     try {
       // Take top N stocks that have action potential (positive score preferred)
       const topSymbols = rankedResults
@@ -478,8 +503,12 @@ const ScreensTab = () => {
       }
 
       const result = await response.json();
-      if (result.status === 'success' && Array.isArray(result.data?.setups)) {
-        setTradeSetups(result.data.setups);
+      if (result.status === 'success' && result.data) {
+        const newSetups = Array.isArray(result.data.setups) ? result.data.setups : [];
+        const updated = Array.isArray(result.data.updated) ? result.data.updated : [];
+        const skipped = Array.isArray(result.data.skipped) ? result.data.skipped : [];
+        setTradeSetups(newSetups);
+        setDuplicateInfo({ updated, skipped });
       } else {
         throw new Error(result.message || 'Invalid response from AI');
       }
@@ -537,9 +566,15 @@ const ScreensTab = () => {
                   s.status === 'underperforming' ? 'bg-red-100 text-red-700' :
                   'bg-gray-100 text-gray-600'
                 }`}>
-                  {s.status === 'new' ? 'Needs Data' : s.status}
+                  {s.status === 'new' ? 'Awaiting Results' : s.status}
                 </span>
-                <p className="text-xs text-gray-500 mt-1 line-clamp-2">{s.reason}</p>
+                <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+                  {s.status === 'new'
+                    ? (s.totalBatches > 0
+                      ? `${s.totalBatches} batch${s.totalBatches > 1 ? 'es' : ''} uploaded — waiting for trades to hit SL or Target`
+                      : 'Upload CSV → Rank → Get AI Setup → trades must resolve first')
+                    : s.reason}
+                </p>
                 {s.avgAIWinRate !== null && (
                   <div className="mt-2 flex items-center gap-2 text-xs">
                     <span className="text-gray-500">Win: <span className="font-medium text-gray-700">{s.avgAIWinRate}%</span></span>
@@ -680,28 +715,52 @@ const ScreensTab = () => {
               </div>
               {rankedResults.length > 0 && (
               <div className="glass-effect rounded-xl p-6 shadow-lg">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center"><Award className="h-5 w-5 mr-2 text-yellow-500" />Ranked Results <span className="ml-2 text-sm font-normal text-gray-500">({rankedResults.length} stocks)</span></h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center"><Award className="h-5 w-5 mr-2 text-yellow-500" />Ranked Results <span className="ml-2 text-sm font-normal text-gray-500">({rankedResults.length} stocks — AI Fundamental Score /20)</span></h3>
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50"><tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Last Price</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">% Change</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Score</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Error</th>
+                      <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
+                      <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
+                      <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
+                      <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">% Chg</th>
+                      <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">AI Score</th>
+                      <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider" title="Financial Health">🏦</th>
+                      <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider" title="Growth">📈</th>
+                      <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider" title="Valuation">💰</th>
+                      <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider" title="Technical">📊</th>
+                      <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider" title="Momentum & Order Flow">📦</th>
+                      <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider" title="Institutional Quality">🏛️</th>
+                      <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">AI Reasoning</th>
                     </tr></thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {rankedResults.map((item, idx) => (
+                      {rankedResults.map((item, idx) => {
+                        const hasAI = item.aiBreakdown != null;
+                        const score = item.aiScore || 0;
+                        const scoreColor = score >= 18 ? 'text-green-600' : score >= 12 ? 'text-blue-600' : score >= 6 ? 'text-yellow-600' : 'text-red-600';
+                        const scoreBg = score >= 18 ? 'bg-green-100' : score >= 12 ? 'bg-blue-100' : score >= 6 ? 'bg-yellow-100' : 'bg-red-100';
+                        return (
                         <tr key={item.symbol} className={idx < 5 ? 'bg-green-50' : ''}>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{idx + 1}</td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{item.symbol}</td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">{item.lastPrice != null ? `\u20b9${item.lastPrice.toFixed(2)}` : '\u2014'}</td>
-                          <td className={`px-4 py-3 whitespace-nowrap text-sm text-right font-medium ${item.percentChange != null ? (item.percentChange > 0 ? 'text-green-600' : item.percentChange < 0 ? 'text-red-600' : 'text-gray-600') : 'text-gray-400'}`}>{item.percentChange != null ? `${item.percentChange > 0 ? '+' : ''}${item.percentChange.toFixed(2)}%` : '\u2014'}</td>
-                          <td className={`px-4 py-3 whitespace-nowrap text-sm text-right font-semibold ${item.score > 0 ? 'text-green-600' : item.score < 0 ? 'text-red-600' : 'text-gray-600'}`}>{item.score.toFixed(2)}</td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-red-500">{item.error || ''}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-900 font-mono-nums">{idx + 1}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-sm font-semibold text-blue-600">{item.symbol}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-sm text-right text-gray-900 font-mono-nums">{item.lastPrice != null ? `₹${item.lastPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}</td>
+                          <td className={`px-3 py-3 whitespace-nowrap text-sm text-right font-medium font-mono-nums ${item.percentChange != null ? (item.percentChange > 0 ? 'text-green-600' : item.percentChange < 0 ? 'text-red-600' : 'text-gray-600') : 'text-gray-400'}`}>{item.percentChange != null ? `${item.percentChange > 0 ? '+' : ''}${item.percentChange.toFixed(2)}%` : '—'}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-center">
+                            {hasAI ? (
+                              <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${scoreBg} ${scoreColor}`}>{item.aiScore}/24</span>
+                            ) : (
+                              <span className="text-xs text-gray-400">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 whitespace-nowrap text-center text-xs font-mono-nums">{hasAI ? item.aiBreakdown!.health : '—'}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-center text-xs font-mono-nums">{hasAI ? item.aiBreakdown!.growth : '—'}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-center text-xs font-mono-nums">{hasAI ? item.aiBreakdown!.valuation : '—'}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-center text-xs font-mono-nums">{hasAI ? item.aiBreakdown!.technical : '—'}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-center text-xs font-mono-nums">{hasAI ? (item.aiBreakdown!.orderFlow ?? '—') : '—'}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-center text-xs font-mono-nums">{hasAI ? (item.aiBreakdown!.institutional ?? '—') : '—'}</td>
+                          <td className="px-3 py-2 text-xs text-gray-600 max-w-xs truncate" title={hasAI ? item.aiBreakdown!.reason : ''}>{hasAI ? item.aiBreakdown!.reason : (item.error || '')}</td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -871,6 +930,47 @@ const ScreensTab = () => {
                         </div>
                       );
                     })}
+                  </div>
+                )}
+
+                {!isGeneratingSetups && (tradeSetups.length > 0 || duplicateInfo.updated.length > 0 || duplicateInfo.skipped.length > 0) && (
+                  <div className="mt-4 space-y-2">
+                    {tradeSetups.length > 0 && (
+                      <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-between">
+                        <p className="text-sm text-blue-700">
+                          {tradeSetups.length} new setup{tradeSetups.length > 1 ? 's' : ''} saved as <strong>paper trades</strong> — monitored every 2 min during market hours.
+                        </p>
+                        <button
+                          onClick={() => {
+                            const navEvent = new CustomEvent('navigateToTab', { detail: 'paper' });
+                            window.dispatchEvent(navEvent);
+                          }}
+                          className="ml-3 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg whitespace-nowrap transition-colors"
+                        >
+                          View in Paper Trading →
+                        </button>
+                      </div>
+                    )}
+                    {duplicateInfo.updated.length > 0 && (
+                      <div className="p-3 rounded-lg bg-amber-50 border border-amber-300">
+                        <p className="text-sm font-semibold text-amber-800 mb-1">SL/Target Updated for Active Trades:</p>
+                        {duplicateInfo.updated.map((u: any, i: number) => (
+                          <div key={i} className="text-xs text-amber-700 ml-2 mb-1">
+                            <strong>{u.symbol}</strong>: {(u._changes || []).join(', ')}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {duplicateInfo.skipped.length > 0 && (
+                      <div className="p-3 rounded-lg bg-gray-50 border border-gray-200">
+                        <p className="text-sm font-semibold text-gray-600 mb-1">Skipped (already active):</p>
+                        {duplicateInfo.skipped.map((s: any, i: number) => (
+                          <div key={i} className="text-xs text-gray-500 ml-2">
+                            <strong>{s.symbol}</strong> — {s.reason}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 

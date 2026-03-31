@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { TrendingUp, TrendingDown, RefreshCw, Activity } from 'lucide-react';
+import { ArrowUp, ArrowDown, RefreshCw } from 'lucide-react';
 import { useLTP } from '../hooks/useLTP';
 
 interface LiveIndexBarProps {
@@ -90,105 +90,72 @@ const LiveIndexBar: React.FC<LiveIndexBarProps> = ({
     return getStaticDemoData(symbol);
   };
 
+  // Display name mapping
+  const displayName: Record<string, string> = {
+    'NIFTY': 'NIFTY 50',
+    'SENSEX': 'SENSEX',
+    'BANKNIFTY': 'BANK NIFTY'
+  };
+
   // Show loading skeleton during hydration to prevent mismatch
   if (!isClient) {
     return (
-      <div className="bg-white rounded-lg shadow-md p-4 mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Activity className="w-5 h-5 text-blue-600" />
-            <h2 className="text-lg font-semibold text-gray-900">Live Index Bar</h2>
-          </div>
-          <div className="flex items-center gap-2 text-sm text-gray-600">
-            <RefreshCw className="w-4 h-4 animate-spin" />
-            <span>Loading...</span>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {symbols.map((symbol) => (
-            <div key={symbol} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg animate-pulse">
-              <div>
-                <h3 className="text-sm font-medium text-gray-600 uppercase">{symbol}</h3>
-                <div className="h-8 bg-gray-200 rounded w-32 mt-1"></div>
-              </div>
-              <div className="w-12 h-12 rounded-full bg-gray-200"></div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+        {symbols.map((symbol) => (
+          <div key={symbol} className="glass-effect rounded-lg overflow-hidden animate-pulse">
+            <div className="h-0.5 bg-gray-300" />
+            <div className="p-3">
+              <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">{displayName[symbol] || symbol}</p>
+              <div className="h-8 bg-gray-200 rounded w-32 mt-1" />
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-4 mb-6">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <Activity className="w-5 h-5 text-blue-600" />
-          <h2 className="text-lg font-semibold text-gray-900">Live Index Bar</h2>
-        </div>
-        <div className="flex items-center gap-2 text-sm text-gray-600">
-          {loading && <RefreshCw className="w-4 h-4 animate-spin" />}
-          <span>Last updated {formatTime(lastUpdated)}</span>
-          {error && (
-            <span className="text-amber-600 ml-2">• Demo Mode</span>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {symbols.map((symbol) => {
+    <div className="space-y-2 mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {symbols.map((symbol, i) => {
           const data = getDisplayData(symbol);
           const isPositive = data.change >= 0;
           const hasLiveData = prices[symbol] && typeof prices[symbol] === 'number';
-          
+
           return (
             <div
               key={symbol}
-              className={`flex items-center justify-between p-4 rounded-lg ${
-                hasLiveData ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
-              }`}
+              className="glass-effect rounded-lg overflow-hidden"
+              style={{ animationDelay: `${i * 60}ms` }}
             >
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-medium text-gray-600 uppercase">
-                    {symbol}
-                  </h3>
-                  <span className={`text-xs px-2 py-1 rounded ${
-                    hasLiveData ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                  }`}>
-                    {hasLiveData ? 'LIVE' : 'DEMO'}
+              {/* Colored top stripe */}
+              <div className={`h-0.5 ${isPositive ? 'bg-green-500' : 'bg-red-500'}`} />
+              <div className="p-3">
+                <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-0.5">
+                  {displayName[symbol] || symbol}
+                </p>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-2xl font-bold font-mono-nums metric-glow text-gray-900">
+                    {data.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                  {isPositive ? (
+                    <ArrowUp className="w-3.5 h-3.5 text-green-500" />
+                  ) : (
+                    <ArrowDown className="w-3.5 h-3.5 text-red-500" />
+                  )}
+                </div>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className={isPositive ? 'badge-success' : 'badge-destructive'}>
+                    {isPositive ? '+' : ''}{data.change.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                  <span className={`text-xs font-mono-nums ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
+                    {isPositive ? '+' : ''}{data.changePercent.toFixed(2)}%
                   </span>
                 </div>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-xl font-bold text-gray-900">
-                    ₹{data.price.toFixed(2)}
-                  </span>
-                  <div className={`flex items-center gap-1 ${
-                    isPositive ? 'text-green-600' : 'text-red-600'
-                  }`}>
-                    {isPositive ? (
-                      <TrendingUp className="w-4 h-4" />
-                    ) : (
-                      <TrendingDown className="w-4 h-4" />
-                    )}
-                    <span className="text-sm font-medium">
-                      {isPositive ? '+' : ''}{data.change.toFixed(2)}
-                    </span>
-                    <span className="text-xs">
-                      ({isPositive ? '+' : ''}{data.changePercent.toFixed(2)}%)
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                isPositive ? 'bg-green-100' : 'bg-red-100'
-              }`}>
-                {isPositive ? (
-                  <TrendingUp className={`w-6 h-6 text-green-600`} />
-                ) : (
-                  <TrendingDown className={`w-6 h-6 text-red-600`} />
-                )}
+                <p className="text-[9px] text-gray-500 mt-1 font-mono-nums">
+                  {hasLiveData ? `Updated ${formatTime(lastUpdated)}` : 'Demo Data'}
+                  {loading && <RefreshCw className="w-2.5 h-2.5 inline ml-1 animate-spin" />}
+                </p>
               </div>
             </div>
           );
@@ -196,8 +163,8 @@ const LiveIndexBar: React.FC<LiveIndexBarProps> = ({
       </div>
 
       {error && (
-        <div className="mt-3 text-xs text-amber-600 bg-amber-50 p-2 rounded">
-          ⚠️ Error: {error}
+        <div className="text-xs text-amber-600 bg-amber-50 px-3 py-1.5 rounded">
+          ⚠️ {error}
         </div>
       )}
     </div>

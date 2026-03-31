@@ -489,7 +489,14 @@ const TradeJournalTab = () => {
                         className="hover:bg-gray-50 cursor-pointer"
                         onClick={() => setExpandedId(isExpanded ? null : setup._id)}
                       >
-                        <td className="px-4 py-3 text-sm font-semibold text-gray-900">{setup.symbol}</td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm font-semibold text-gray-900">{setup.symbol}</span>
+                          {setup.screenName && (
+                            <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-600 border border-indigo-100">
+                              {setup.screenName}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-3">
                           <span
                             className={`px-2 py-0.5 text-xs font-semibold rounded-full ${

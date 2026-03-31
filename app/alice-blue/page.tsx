@@ -444,7 +444,7 @@ export default function AliceBluePage() {
                     )
                   ) : (
                     <div className="text-gray-500 text-sm">
-                      Click "Refresh All" to load data
+                      Click &quot;Refresh All&quot; to load data
                     </div>
                   )}
                 </div>

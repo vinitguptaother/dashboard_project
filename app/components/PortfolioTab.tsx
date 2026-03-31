@@ -1,885 +1,410 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { 
-  Briefcase, 
-  Plus, 
-  Edit, 
-  Trash2, 
-  TrendingUp, 
-  TrendingDown, 
-  DollarSign, 
-  Calendar,
-  Settings,
-  BarChart3,
-  Target,
-  AlertCircle,
-  CheckCircle,
-  X
+import {
+  Eye, Plus, Trash2, TrendingUp, TrendingDown, RefreshCw,
+  Sparkles, MessageSquare, X, Search, ArrowUpRight, ArrowDownRight,
+  Clock, ShieldCheck
 } from 'lucide-react';
-import { AuthClient, PortfolioClient } from '../lib/apiService';
-import { usePortfolioWebSocket } from '../hooks/useWebSocket';
 
-interface Stock {
-  id: string;
+const BACKEND_URL = 'http://localhost:5002';
+
+interface WatchlistAnalysis {
+  score: number | null;
+  health: number | null;
+  growth: number | null;
+  valuation: number | null;
+  technical: number | null;
+  orderFlow: number | null;
+  institutional: number | null;
+  summary: string;
+  signal: 'BUY' | 'SELL' | 'HOLD' | 'WATCH' | null;
+  analyzedAt: string | null;
+}
+
+interface WatchlistItem {
+  _id: string;
   symbol: string;
-  companyName: string;
-  quantity: number;
-  purchasePrice: number;
-  purchaseDate: string;
-  currentPrice: number;
-  parameters: {
-    fundamental: { [key: string]: number | string };
-    technical: { [key: string]: number | string };
-    other: { [key: string]: number | string };
-  };
+  name: string;
+  addedAt: string;
+  notes: string;
+  lastAnalysis: WatchlistAnalysis | null;
+  priceWhenAdded: number | null;
+  currentPrice: number | null;
 }
 
-interface Portfolio {
-  id: string;
-  name: string;
-  description: string;
-  createdDate: string;
-  totalInvestment: number;
-  currentValue: number;
-  stocks: Stock[];
-  riskLevel: 'Conservative' | 'Moderate' | 'Aggressive';
-  strategy: string;
-}
+const signalColors: Record<string, string> = {
+  BUY: 'bg-green-100 text-green-700 border-green-300',
+  SELL: 'bg-red-100 text-red-700 border-red-300',
+  HOLD: 'bg-blue-100 text-blue-700 border-blue-300',
+  WATCH: 'bg-yellow-100 text-yellow-700 border-yellow-300',
+};
 
 const PortfolioTab = () => {
-  const [activeTab, setActiveTab] = useState('overview');
-  const [selectedPortfolio, setSelectedPortfolio] = useState<string | null>(null);
-  const [showCreatePortfolio, setShowCreatePortfolio] = useState(false);
-  const [showAddStock, setShowAddStock] = useState(false);
-  const [showEditStock, setShowEditStock] = useState(false);
-  const [editingStock, setEditingStock] = useState<Stock | null>(null);
+  const [items, setItems] = useState<WatchlistItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addSymbol, setAddSymbol] = useState('');
+  const [addName, setAddName] = useState('');
+  const [addNotes, setAddNotes] = useState('');
+  const [addError, setAddError] = useState('');
+  const [expandedSymbol, setExpandedSymbol] = useState<string | null>(null);
+  const [editingNotes, setEditingNotes] = useState<string | null>(null);
+  const [notesValue, setNotesValue] = useState('');
+  const [filterSignal, setFilterSignal] = useState<string>('ALL');
+  const [searchTerm, setSearchTerm] = useState('');
 
-  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  // WebSocket for real-time portfolio updates
-  const { onPortfolioUpdate } = usePortfolioWebSocket();
-
-  const loadPortfolios = async () => {
-    if (!AuthClient.token) return;
-    setLoading(true);
+  const fetchWatchlist = async () => {
     try {
-      const json = await PortfolioClient.list();
-      if (json.status === 'success') {
-        const items = (json.data.portfolios || []).map((p: any) => ({
-          id: p._id,
-          name: p.name,
-          description: p.description,
-          createdDate: new Date(p.createdAt).toISOString().slice(0,10),
-          totalInvestment: p.totalInvested || 0,
-          currentValue: p.currentValue || 0,
-          riskLevel: 'Moderate',
-          strategy: p.type || 'equity',
-          stocks: (p.positions || []).map((pos: any) => ({
-            id: pos._id,
-            symbol: pos.symbol,
-            companyName: pos.symbol,
-            quantity: pos.quantity,
-            purchasePrice: pos.averagePrice,
-            purchaseDate: new Date(pos.lastUpdated || p.createdAt).toISOString().slice(0,10),
-            currentPrice: pos.currentPrice ?? pos.averagePrice,
-            parameters: { fundamental: {}, technical: {}, other: {} }
-          }))
-        }));
-        setPortfolios(items);
-      }
+      const res = await fetch(`${BACKEND_URL}/api/watchlist`);
+      const json = await res.json();
+      if (json.status === 'success') setItems(json.data || []);
+    } catch (e) {
+      console.error('Failed to fetch watchlist:', e);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadPortfolios();
-  }, []);
+  useEffect(() => { fetchWatchlist(); }, []);
 
-  // WebSocket real-time portfolio updates
-  useEffect(() => {
-    const unsubscribe = onPortfolioUpdate((data) => {
-      // Update portfolio data with real-time updates
-      setPortfolios(prev => prev.map(portfolio => ({
-        ...portfolio,
-        currentValue: data.totalValue,
-        stocks: portfolio.stocks.map(stock => ({
-          ...stock,
-          currentPrice: data.positions.find((p: any) => p.symbol === stock.symbol)?.currentPrice || stock.currentPrice
-        }))
-      })));
-    });
-
-    return unsubscribe;
-  }, [onPortfolioUpdate]);
-
-  const fundamentalParameters = [
-    'Revenue growth (YoY)', 'Revenue growth (QoQ)', 'Profit margin', 'Earnings per share (EPS)',
-    'Price-to-earnings (PE) ratio', 'Price/Book ratio', 'PEG ratio (PE / EPS growth)',
-    'Return on Equity (ROE)', 'Return on Capital Employed (ROCE)', 'Free Cash Flow (FCF)',
-    'Debt-to-Equity ratio', 'Interest Coverage ratio', 'Dividend Yield', 'Promoter Holding %',
-    'Institutional Holding %', 'Operating Margin', 'Net Profit Margin', 'Book Value per Share',
-    'Sales Growth', 'Consistency of Earnings', 'Corporate Governance'
-  ];
-
-  const technicalParameters = [
-    'Price trends (Higher highs/lows)', 'Moving averages (20, 50, 200 EMA/SMA)',
-    'VWAP (Volume Weighted Average Price)', 'RSI (Relative Strength Index)',
-    'MACD (Moving Average Convergence Divergence)', 'Bollinger Bands', 'Stochastic Oscillator',
-    'Volume spikes', 'Average True Range (ATR)', 'Support and resistance levels',
-    'Breakouts & pullbacks', 'Candlestick patterns', 'Gap up/gap down',
-    'Beta (Volatility relative to market)', 'Fibonacci levels', 'Trendlines and channels'
-  ];
-
-  const otherParameters = [
-    'Liquidity / Daily Trading Volume', 'Volatility', 'News sentiment', 'Earnings dates / upcoming events',
-    'FII/DII activity', 'Sector strength and rotation', 'Correlation with market/index',
-    'Momentum (price & volume)', 'Technical breakouts (with volume confirmation)',
-    'Pre-market or after-market movements', 'Open interest and option chain data',
-    'Insider buying/selling trends', 'Management commentary and outlook',
-    'Macroeconomic indicators (interest rates, inflation, etc.)', 'Moat / Competitive advantage (long-term only)'
-  ];
-
-  const [newPortfolio, setNewPortfolio] = useState({
-    name: '',
-    description: '',
-    riskLevel: 'Moderate' as const,
-    strategy: ''
-  });
-
-  const [newStock, setNewStock] = useState({
-    symbol: '',
-    companyName: '',
-    quantity: 0,
-    purchasePrice: 0,
-    purchaseDate: '',
-    currentPrice: 0,
-    selectedParameters: {
-      fundamental: [] as string[],
-      technical: [] as string[],
-      other: [] as string[]
-    },
-    parameterValues: {
-      fundamental: {} as { [key: string]: number | string },
-      technical: {} as { [key: string]: number | string },
-      other: {} as { [key: string]: number | string }
-    }
-  });
-
-  const calculatePortfolioMetrics = (portfolio: Portfolio) => {
-    const totalGainLoss = portfolio.currentValue - portfolio.totalInvestment;
-    const gainLossPercentage = (totalGainLoss / portfolio.totalInvestment) * 100;
-    
-    return {
-      totalGainLoss,
-      gainLossPercentage,
-      totalStocks: portfolio.stocks.length
-    };
-  };
-
-  const calculateStockMetrics = (stock: Stock) => {
-    const totalInvestment = stock.quantity * stock.purchasePrice;
-    const currentValue = stock.quantity * stock.currentPrice;
-    const gainLoss = currentValue - totalInvestment;
-    const gainLossPercentage = (gainLoss / totalInvestment) * 100;
-
-    return {
-      totalInvestment,
-      currentValue,
-      gainLoss,
-      gainLossPercentage
-    };
-  };
-
-  const handleCreatePortfolio = async () => {
-    if (!AuthClient.token) return;
+  const handleAdd = async () => {
+    if (!addSymbol.trim()) { setAddError('Enter a stock symbol'); return; }
+    setAddError('');
     try {
-      const payload = { name: newPortfolio.name, description: newPortfolio.description, type: 'equity' as const };
-      const res = await PortfolioClient.create(payload);
-      if (res.status === 'success') {
-        await loadPortfolios();
-        setNewPortfolio({ name: '', description: '', riskLevel: 'Moderate', strategy: '' });
-        setShowCreatePortfolio(false);
+      const res = await fetch(`${BACKEND_URL}/api/watchlist/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: addSymbol.trim(), name: addName.trim() || addSymbol.trim(), notes: addNotes.trim() }),
+      });
+      const json = await res.json();
+      if (json.status === 'success') {
+        setItems(json.data);
+        setShowAddModal(false);
+        setAddSymbol(''); setAddName(''); setAddNotes('');
+      } else {
+        setAddError(json.message || 'Failed to add');
       }
-    } catch {}
-  };
-
-  const handleAddStock = async () => {
-    if (!selectedPortfolio || !AuthClient.token) return;
-    try {
-      await PortfolioClient.addPosition(selectedPortfolio, {
-        symbol: newStock.symbol.toUpperCase(),
-        quantity: newStock.quantity,
-        averagePrice: newStock.purchasePrice,
-        exchange: 'NSE'
-      });
-      await loadPortfolios();
-      setNewStock({
-        symbol: '',
-        companyName: '',
-        quantity: 0,
-        purchasePrice: 0,
-        purchaseDate: '',
-        currentPrice: 0,
-        selectedParameters: { fundamental: [], technical: [], other: [] },
-        parameterValues: { fundamental: {}, technical: {}, other: {} }
-      });
-      setShowAddStock(false);
-    } catch {}
-  };
-
-  const handleEditStock = async () => {
-    if (!editingStock || !selectedPortfolio || !AuthClient.token) return;
-    try {
-      await PortfolioClient.updatePosition(selectedPortfolio, editingStock.id, {
-        quantity: editingStock.quantity,
-        averagePrice: editingStock.purchasePrice
-      });
-      await loadPortfolios();
-    } finally {
-      setEditingStock(null);
-      setShowEditStock(false);
+    } catch (e) {
+      setAddError('Network error');
     }
   };
 
-  const handleDeleteStock = async (stockId: string) => {
-    if (!selectedPortfolio || !AuthClient.token) return;
+  const handleRemove = async (symbol: string) => {
+    if (!confirm(`Remove ${symbol} from watchlist?`)) return;
     try {
-      await PortfolioClient.removePosition(selectedPortfolio, stockId);
-      await loadPortfolios();
-    } catch {}
+      const res = await fetch(`${BACKEND_URL}/api/watchlist/${symbol}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (json.status === 'success') setItems(json.data);
+    } catch (e) {
+      console.error('Failed to remove:', e);
+    }
   };
 
-  const renderOverview = () => (
-    <div className="space-y-6">
-      {/* Portfolio Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {portfolios.map((portfolio) => {
-          const metrics = calculatePortfolioMetrics(portfolio);
-          return (
-            <div 
-              key={portfolio.id} 
-              className="glass-effect rounded-xl p-6 shadow-lg hover:shadow-xl transition-all cursor-pointer"
-              onClick={() => {
-                setSelectedPortfolio(portfolio.id);
-                setActiveTab('details');
-              }}
-            >
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">{portfolio.name}</h3>
-                <span className={`px-2 py-1 rounded text-xs font-medium ${
-                  portfolio.riskLevel === 'Conservative' ? 'bg-green-100 text-green-800' :
-                  portfolio.riskLevel === 'Moderate' ? 'bg-yellow-100 text-yellow-800' :
-                  'bg-red-100 text-red-800'
-                }`}>
-                  {portfolio.riskLevel}
-                </span>
-              </div>
-              
-              <p className="text-sm text-gray-600 mb-4">{portfolio.description}</p>
-              
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Investment:</span>
-                  <span className="font-medium">₹{portfolio.totalInvestment.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Current Value:</span>
-                  <span className="font-medium">₹{portfolio.currentValue.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">P&L:</span>
-                  <span className={`font-medium flex items-center ${
-                    metrics.totalGainLoss >= 0 ? 'text-green-600' : 'text-red-600'
-                  }`}>
-                    {metrics.totalGainLoss >= 0 ? <TrendingUp className="h-4 w-4 mr-1" /> : <TrendingDown className="h-4 w-4 mr-1" />}
-                    ₹{Math.abs(metrics.totalGainLoss).toLocaleString()} ({metrics.gainLossPercentage.toFixed(2)}%)
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Stocks:</span>
-                  <span className="font-medium">{metrics.totalStocks}</span>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-        
-        {/* Add New Portfolio Card */}
-        <div 
-          className="glass-effect rounded-xl p-6 shadow-lg hover:shadow-xl transition-all cursor-pointer border-2 border-dashed border-gray-300 flex items-center justify-center"
-          onClick={() => setShowCreatePortfolio(true)}
-        >
-          <div className="text-center">
-            <Plus className="h-12 w-12 text-gray-400 mx-auto mb-2" />
-            <h3 className="text-lg font-semibold text-gray-600">Create New Portfolio</h3>
-            <p className="text-sm text-gray-500">Start building your investment portfolio</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Summary Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="glass-effect rounded-lg p-4 text-center">
-          <Briefcase className="h-8 w-8 text-blue-600 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-gray-900">{portfolios.length}</p>
-          <p className="text-sm text-gray-600">Total Portfolios</p>
-        </div>
-        <div className="glass-effect rounded-lg p-4 text-center">
-          <DollarSign className="h-8 w-8 text-green-600 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-gray-900">
-            ₹{portfolios.reduce((sum, p) => sum + p.totalInvestment, 0).toLocaleString()}
-          </p>
-          <p className="text-sm text-gray-600">Total Investment</p>
-        </div>
-        <div className="glass-effect rounded-lg p-4 text-center">
-          <TrendingUp className="h-8 w-8 text-purple-600 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-gray-900">
-            ₹{portfolios.reduce((sum, p) => sum + p.currentValue, 0).toLocaleString()}
-          </p>
-          <p className="text-sm text-gray-600">Current Value</p>
-        </div>
-        <div className="glass-effect rounded-lg p-4 text-center">
-          <Target className="h-8 w-8 text-yellow-600 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-gray-900">
-            {portfolios.reduce((sum, p) => sum + p.stocks.length, 0)}
-          </p>
-          <p className="text-sm text-gray-600">Total Stocks</p>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderPortfolioDetails = () => {
-    const portfolio = portfolios.find(p => p.id === selectedPortfolio);
-    if (!portfolio) return null;
-
-    const metrics = calculatePortfolioMetrics(portfolio);
-
-    return (
-      <div className="space-y-6">
-        {/* Portfolio Header */}
-        <div className="glass-effect rounded-xl p-6 shadow-lg">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">{portfolio.name}</h2>
-              <p className="text-gray-600">{portfolio.description}</p>
-            </div>
-            <div className="flex space-x-2">
-              <button 
-                onClick={() => setShowAddStock(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Stock
-              </button>
-              <button className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
-                <Edit className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="text-center">
-              <p className="text-sm text-gray-600">Total Investment</p>
-              <p className="text-xl font-bold text-gray-900">₹{portfolio.totalInvestment.toLocaleString()}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-sm text-gray-600">Current Value</p>
-              <p className="text-xl font-bold text-gray-900">₹{portfolio.currentValue.toLocaleString()}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-sm text-gray-600">Total P&L</p>
-              <p className={`text-xl font-bold ${metrics.totalGainLoss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                ₹{Math.abs(metrics.totalGainLoss).toLocaleString()}
-              </p>
-            </div>
-            <div className="text-center">
-              <p className="text-sm text-gray-600">Returns</p>
-              <p className={`text-xl font-bold ${metrics.gainLossPercentage >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {metrics.gainLossPercentage.toFixed(2)}%
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Holdings Table */}
-        <div className="glass-effect rounded-xl p-6 shadow-lg">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Holdings</h3>
-          {portfolio.stocks.length === 0 ? (
-            <div className="text-center py-8">
-              <BarChart3 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-600">No stocks in this portfolio yet</p>
-              <button 
-                onClick={() => setShowAddStock(true)}
-                className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Add Your First Stock
-              </button>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-3 px-2 font-medium text-gray-900">Stock</th>
-                    <th className="text-right py-3 px-2 font-medium text-gray-900">Qty</th>
-                    <th className="text-right py-3 px-2 font-medium text-gray-900">Avg Price</th>
-                    <th className="text-right py-3 px-2 font-medium text-gray-900">Current Price</th>
-                    <th className="text-right py-3 px-2 font-medium text-gray-900">Investment</th>
-                    <th className="text-right py-3 px-2 font-medium text-gray-900">Current Value</th>
-                    <th className="text-right py-3 px-2 font-medium text-gray-900">P&L</th>
-                    <th className="text-center py-3 px-2 font-medium text-gray-900">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {portfolio.stocks.map((stock) => {
-                    const stockMetrics = calculateStockMetrics(stock);
-                    return (
-                      <tr key={stock.id} className="border-b border-gray-100 hover:bg-gray-50">
-                        <td className="py-3 px-2">
-                          <div>
-                            <span className="font-semibold text-gray-900">{stock.symbol}</span>
-                            <p className="text-sm text-gray-600">{stock.companyName}</p>
-                          </div>
-                        </td>
-                        <td className="py-3 px-2 text-right">{stock.quantity}</td>
-                        <td className="py-3 px-2 text-right">₹{stock.purchasePrice}</td>
-                        <td className="py-3 px-2 text-right">₹{stock.currentPrice}</td>
-                        <td className="py-3 px-2 text-right">₹{stockMetrics.totalInvestment.toLocaleString()}</td>
-                        <td className="py-3 px-2 text-right">₹{stockMetrics.currentValue.toLocaleString()}</td>
-                        <td className="py-3 px-2 text-right">
-                          <div className={`${stockMetrics.gainLoss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            <span className="font-medium">₹{Math.abs(stockMetrics.gainLoss).toLocaleString()}</span>
-                            <p className="text-sm">({stockMetrics.gainLossPercentage.toFixed(2)}%)</p>
-                          </div>
-                        </td>
-                        <td className="py-3 px-2 text-center">
-                          <div className="flex justify-center space-x-2">
-                            <button 
-                              onClick={() => {
-                                setEditingStock(stock);
-                                setShowEditStock(true);
-                              }}
-                              className="text-blue-600 hover:text-blue-800"
-                            >
-                              <Edit className="h-4 w-4" />
-                            </button>
-                            <button 
-                              onClick={() => handleDeleteStock(stock.id)}
-                              className="text-red-600 hover:text-red-800"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
-    );
+  const handleAnalyze = async () => {
+    setAnalyzing(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/watchlist/analyze`, { method: 'POST' });
+      const json = await res.json();
+      if (json.status === 'success') setItems(json.data);
+      else alert(json.message || 'Analysis failed');
+    } catch (e) {
+      alert('Analysis failed — check if backend is running');
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
-  const renderParameterSection = (
-    title: string, 
-    parameters: string[], 
-    selectedParams: string[], 
-    paramValues: { [key: string]: number | string },
-    onParamToggle: (param: string) => void,
-    onValueChange: (param: string, value: string) => void
-  ) => (
-    <div className="space-y-3">
-      <h4 className="font-medium text-gray-900">{title}</h4>
-      <div className="max-h-60 overflow-y-auto border border-gray-200 rounded-lg p-3">
-        {parameters.map((param) => (
-          <div key={param} className="flex items-center space-x-3 mb-2">
-            <input
-              type="checkbox"
-              checked={selectedParams.includes(param)}
-              onChange={() => onParamToggle(param)}
-              className="rounded border-gray-300"
-            />
-            <label className="text-sm text-gray-700 flex-1">{param}</label>
-            {selectedParams.includes(param) && (
-              <input
-                type="text"
-                value={paramValues[param] || ''}
-                onChange={(e) => onValueChange(param, e.target.value)}
-                placeholder="Value"
-                className="w-20 px-2 py-1 border border-gray-300 rounded text-sm"
-              />
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  const handleSaveNotes = async (symbol: string) => {
+    try {
+      await fetch(`${BACKEND_URL}/api/watchlist/${symbol}/notes`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: notesValue }),
+      });
+      setItems(prev => prev.map(i => i.symbol === symbol ? { ...i, notes: notesValue } : i));
+      setEditingNotes(null);
+    } catch (e) {
+      console.error('Failed to save notes:', e);
+    }
+  };
+
+  // Filtering
+  const filtered = items.filter(item => {
+    if (filterSignal !== 'ALL' && item.lastAnalysis?.signal !== filterSignal) return false;
+    if (searchTerm && !item.symbol.toLowerCase().includes(searchTerm.toLowerCase()) && !item.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    return true;
+  });
+
+  // Sort by AI score descending
+  const sorted = [...filtered].sort((a, b) => (b.lastAnalysis?.score || 0) - (a.lastAnalysis?.score || 0));
+
+  const totalStocks = items.length;
+  const analyzed = items.filter(i => i.lastAnalysis?.analyzedAt).length;
+  const buySignals = items.filter(i => i.lastAnalysis?.signal === 'BUY').length;
+  const avgScore = analyzed > 0
+    ? (items.filter(i => i.lastAnalysis?.score != null).reduce((s, i) => s + (i.lastAnalysis?.score || 0), 0) / analyzed).toFixed(1)
+    : '—';
+
+  const scoreColor = (s: number) => s >= 18 ? 'text-green-600' : s >= 12 ? 'text-blue-600' : s >= 6 ? 'text-yellow-600' : 'text-red-600';
+  const scoreBg = (s: number) => s >= 18 ? 'bg-green-100' : s >= 12 ? 'bg-blue-100' : s >= 6 ? 'bg-yellow-100' : 'bg-red-100';
 
   return (
     <div className="space-y-6 slide-in">
-      <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Portfolio Management</h1>
-        <p className="text-gray-600">Create and manage multiple investment portfolios with detailed tracking</p>
+      <div className="text-center mb-6">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Watchlist + AI Monitor</h1>
+        <p className="text-gray-600">Add stocks you want to track. AI analyzes them on demand.</p>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="flex justify-center mb-6">
-        <div className="glass-effect rounded-lg p-1 flex space-x-1">
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`px-4 py-2 rounded-lg transition-all ${
-              activeTab === 'overview'
-                ? 'bg-blue-600 text-white shadow-md'
-                : 'text-gray-600 hover:bg-blue-50 hover:text-blue-600'
-            }`}
-          >
-            Overview
-          </button>
-          {selectedPortfolio && (
-            <button
-              onClick={() => setActiveTab('details')}
-              className={`px-4 py-2 rounded-lg transition-all ${
-                activeTab === 'details'
-                  ? 'bg-blue-600 text-white shadow-md'
-                  : 'text-gray-600 hover:bg-blue-50 hover:text-blue-600'
-              }`}
-            >
-              Portfolio Details
-            </button>
-          )}
+      {/* Stats Row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="glass-effect rounded-xl p-4 shadow-lg text-center">
+          <p className="text-xs text-gray-500 uppercase">Watching</p>
+          <p className="text-2xl font-bold text-gray-900 font-mono-nums">{totalStocks}</p>
+        </div>
+        <div className="glass-effect rounded-xl p-4 shadow-lg text-center">
+          <p className="text-xs text-gray-500 uppercase">Analyzed</p>
+          <p className="text-2xl font-bold text-gray-900 font-mono-nums">{analyzed}</p>
+        </div>
+        <div className="glass-effect rounded-xl p-4 shadow-lg text-center">
+          <p className="text-xs text-gray-500 uppercase">BUY Signals</p>
+          <p className="text-2xl font-bold text-green-600 font-mono-nums">{buySignals}</p>
+        </div>
+        <div className="glass-effect rounded-xl p-4 shadow-lg text-center">
+          <p className="text-xs text-gray-500 uppercase">Avg Score</p>
+          <p className="text-2xl font-bold text-blue-600 font-mono-nums">{avgScore}<span className="text-sm text-gray-400">/24</span></p>
         </div>
       </div>
 
-      {activeTab === 'overview' && renderOverview()}
-      {activeTab === 'details' && renderPortfolioDetails()}
+      {/* Actions Bar */}
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+        >
+          <Plus className="h-4 w-4 mr-1" /> Add Stock
+        </button>
+        <button
+          onClick={handleAnalyze}
+          disabled={analyzing || items.length === 0}
+          className="flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors"
+        >
+          <Sparkles className={`h-4 w-4 mr-1 ${analyzing ? 'animate-spin' : ''}`} />
+          {analyzing ? 'Analyzing...' : 'Run AI Analysis'}
+        </button>
+        <div className="flex items-center gap-1 ml-auto">
+          {['ALL', 'BUY', 'SELL', 'HOLD', 'WATCH'].map(sig => (
+            <button
+              key={sig}
+              onClick={() => setFilterSignal(sig)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${filterSignal === sig ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            >
+              {sig}
+            </button>
+          ))}
+        </div>
+      </div>
 
-      {/* Create Portfolio Modal */}
-      {showCreatePortfolio && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="glass-effect rounded-xl p-6 max-w-md w-full mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Create New Portfolio</h3>
-              <button onClick={() => setShowCreatePortfolio(false)}>
-                <X className="h-5 w-5 text-gray-500" />
-              </button>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Portfolio Name</label>
-                <input
-                  type="text"
-                  value={newPortfolio.name}
-                  onChange={(e) => setNewPortfolio({...newPortfolio, name: e.target.value})}
-                  className="w-full p-3 border border-gray-300 rounded-lg"
-                  placeholder="Enter portfolio name"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                <textarea
-                  value={newPortfolio.description}
-                  onChange={(e) => setNewPortfolio({...newPortfolio, description: e.target.value})}
-                  className="w-full p-3 border border-gray-300 rounded-lg"
-                  rows={3}
-                  placeholder="Describe your investment strategy"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Risk Level</label>
-                <select
-                  value={newPortfolio.riskLevel}
-                  onChange={(e) => setNewPortfolio({...newPortfolio, riskLevel: e.target.value as any})}
-                  className="w-full p-3 border border-gray-300 rounded-lg"
-                >
-                  <option value="Conservative">Conservative</option>
-                  <option value="Moderate">Moderate</option>
-                  <option value="Aggressive">Aggressive</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Strategy</label>
-                <input
-                  type="text"
-                  value={newPortfolio.strategy}
-                  onChange={(e) => setNewPortfolio({...newPortfolio, strategy: e.target.value})}
-                  className="w-full p-3 border border-gray-300 rounded-lg"
-                  placeholder="e.g., Long-term Growth, Dividend Income"
-                />
-              </div>
-            </div>
-            <div className="flex space-x-3 mt-6">
-              <button 
-                onClick={() => setShowCreatePortfolio(false)}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleCreatePortfolio}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Create Portfolio
-              </button>
-            </div>
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <input
+          type="text"
+          placeholder="Search watchlist..."
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+          className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 bg-white text-sm focus:ring-2 focus:ring-blue-300 focus:border-blue-400 outline-none"
+        />
+      </div>
+
+      {/* Watchlist Table */}
+      {loading ? (
+        <div className="text-center py-12 text-gray-500">Loading watchlist...</div>
+      ) : sorted.length === 0 ? (
+        <div className="glass-effect rounded-xl p-12 shadow-lg text-center">
+          <Eye className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+          <p className="text-gray-500 text-lg mb-2">
+            {items.length === 0 ? 'Your watchlist is empty' : 'No stocks match your filter'}
+          </p>
+          {items.length === 0 && (
+            <p className="text-gray-400 text-sm">Click &quot;Add Stock&quot; to start tracking stocks you&apos;re interested in.</p>
+          )}
+        </div>
+      ) : (
+        <div className="glass-effect rounded-xl shadow-lg overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Symbol</th>
+                  <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase">Signal</th>
+                  <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase">Score</th>
+                  <th className="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase" title="Health">🏦</th>
+                  <th className="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase" title="Growth">📈</th>
+                  <th className="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase" title="Valuation">💰</th>
+                  <th className="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase" title="Technical">📊</th>
+                  <th className="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase" title="Order Flow">📦</th>
+                  <th className="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase" title="Institutional">🏛️</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">AI Summary</th>
+                  <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {sorted.map((item) => {
+                  const a = item.lastAnalysis;
+                  const hasAnalysis = a && a.analyzedAt;
+                  const expanded = expandedSymbol === item.symbol;
+                  return (
+                    <tr key={item.symbol} className={`cursor-pointer hover:bg-gray-50 ${expanded ? 'bg-blue-50' : ''}`}>
+                      <td className="px-4 py-3" onClick={() => setExpandedSymbol(expanded ? null : item.symbol)}>
+                        <div className="font-semibold text-blue-600 text-sm">{item.symbol}</div>
+                        <div className="text-xs text-gray-400">{item.name !== item.symbol ? item.name : ''}</div>
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        {hasAnalysis && a.signal ? (
+                          <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-bold border ${signalColors[a.signal] || 'bg-gray-100 text-gray-500'}`}>
+                            {a.signal}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-300">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        {hasAnalysis && a.score != null ? (
+                          <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-bold ${scoreBg(a.score)} ${scoreColor(a.score)}`}>
+                            {a.score}/24
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-300">—</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-3 text-center text-xs font-mono-nums">{hasAnalysis ? (a.health ?? '—') : '—'}</td>
+                      <td className="px-2 py-3 text-center text-xs font-mono-nums">{hasAnalysis ? (a.growth ?? '—') : '—'}</td>
+                      <td className="px-2 py-3 text-center text-xs font-mono-nums">{hasAnalysis ? (a.valuation ?? '—') : '—'}</td>
+                      <td className="px-2 py-3 text-center text-xs font-mono-nums">{hasAnalysis ? (a.technical ?? '—') : '—'}</td>
+                      <td className="px-2 py-3 text-center text-xs font-mono-nums">{hasAnalysis ? (a.orderFlow ?? '—') : '—'}</td>
+                      <td className="px-2 py-3 text-center text-xs font-mono-nums">{hasAnalysis ? (a.institutional ?? '—') : '—'}</td>
+                      <td className="px-3 py-3 text-xs text-gray-600 max-w-xs truncate" title={hasAnalysis ? a.summary : ''}>
+                        {hasAnalysis ? a.summary : <span className="text-gray-300 italic">Not analyzed yet</span>}
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <button onClick={(e) => { e.stopPropagation(); handleRemove(item.symbol); }} className="text-red-400 hover:text-red-600 transition-colors" title="Remove">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
+
+          {/* Expanded Details */}
+          {expandedSymbol && (() => {
+            const item = items.find(i => i.symbol === expandedSymbol);
+            if (!item) return null;
+            const a = item.lastAnalysis;
+            return (
+              <div className="border-t border-gray-200 p-5 bg-gray-50">
+                <div className="flex items-start justify-between mb-3">
+                  <h4 className="font-semibold text-gray-900">{item.symbol} — Details</h4>
+                  <button onClick={() => setExpandedSymbol(null)} className="text-gray-400 hover:text-gray-600"><X className="h-4 w-4" /></button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Added: {new Date(item.addedAt).toLocaleDateString('en-IN')}</p>
+                    {a?.analyzedAt && (
+                      <p className="text-xs text-gray-500 mb-1">Last analyzed: {new Date(a.analyzedAt).toLocaleString('en-IN')}</p>
+                    )}
+                    {a?.summary && (
+                      <div className="mt-2 p-3 rounded-lg bg-white border border-gray-200">
+                        <p className="text-sm text-gray-700">{a.summary}</p>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs text-gray-500 font-medium">Notes</p>
+                      {editingNotes !== item.symbol ? (
+                        <button onClick={() => { setEditingNotes(item.symbol); setNotesValue(item.notes); }} className="text-xs text-blue-600 hover:text-blue-800">Edit</button>
+                      ) : (
+                        <div className="flex gap-1">
+                          <button onClick={() => handleSaveNotes(item.symbol)} className="text-xs text-green-600 hover:text-green-800">Save</button>
+                          <button onClick={() => setEditingNotes(null)} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+                        </div>
+                      )}
+                    </div>
+                    {editingNotes === item.symbol ? (
+                      <textarea
+                        value={notesValue}
+                        onChange={e => setNotesValue(e.target.value)}
+                        className="w-full p-2 text-sm border rounded-lg bg-white focus:ring-2 focus:ring-blue-300 outline-none"
+                        rows={3}
+                        placeholder="Add your notes about this stock..."
+                      />
+                    ) : (
+                      <p className="text-sm text-gray-600 bg-white p-2 rounded-lg border min-h-[60px]">
+                        {item.notes || <span className="text-gray-300 italic">No notes</span>}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
       {/* Add Stock Modal */}
-      {showAddStock && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
-          <div className="glass-effect rounded-xl p-6 max-w-4xl w-full mx-4 my-8">
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowAddModal(false)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Add Stock to Portfolio</h3>
-              <button onClick={() => setShowAddStock(false)}>
-                <X className="h-5 w-5 text-gray-500" />
-              </button>
+              <h3 className="text-lg font-semibold text-gray-900">Add to Watchlist</h3>
+              <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-5 w-5" /></button>
             </div>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Basic Information */}
-              <div className="space-y-4">
-                <h4 className="font-medium text-gray-900">Stock Information</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Stock Symbol</label>
-                    <input
-                      type="text"
-                      value={newStock.symbol}
-                      onChange={(e) => setNewStock({...newStock, symbol: e.target.value.toUpperCase()})}
-                      className="w-full p-3 border border-gray-300 rounded-lg"
-                      placeholder="e.g., RELIANCE"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Company Name</label>
-                    <input
-                      type="text"
-                      value={newStock.companyName}
-                      onChange={(e) => setNewStock({...newStock, companyName: e.target.value})}
-                      className="w-full p-3 border border-gray-300 rounded-lg"
-                      placeholder="e.g., Reliance Industries Ltd"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
-                    <input
-                      type="number"
-                      value={newStock.quantity}
-                      onChange={(e) => setNewStock({...newStock, quantity: parseInt(e.target.value) || 0})}
-                      className="w-full p-3 border border-gray-300 rounded-lg"
-                      placeholder="Number of shares"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Purchase Price (₹)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={newStock.purchasePrice}
-                      onChange={(e) => setNewStock({...newStock, purchasePrice: parseFloat(e.target.value) || 0})}
-                      className="w-full p-3 border border-gray-300 rounded-lg"
-                      placeholder="Price per share"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Purchase Date</label>
-                    <input
-                      type="date"
-                      value={newStock.purchaseDate}
-                      onChange={(e) => setNewStock({...newStock, purchaseDate: e.target.value})}
-                      className="w-full p-3 border border-gray-300 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Current Price (₹)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={newStock.currentPrice}
-                      onChange={(e) => setNewStock({...newStock, currentPrice: parseFloat(e.target.value) || 0})}
-                      className="w-full p-3 border border-gray-300 rounded-lg"
-                      placeholder="Current market price"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Parameters */}
-              <div className="space-y-4">
-                <h4 className="font-medium text-gray-900">Analysis Parameters</h4>
-                
-                {/* Fundamental Parameters */}
-                {renderParameterSection(
-                  "📌 Fundamental Parameters",
-                  fundamentalParameters,
-                  newStock.selectedParameters.fundamental,
-                  newStock.parameterValues.fundamental,
-                  (param) => {
-                    const selected = newStock.selectedParameters.fundamental;
-                    const updated = selected.includes(param) 
-                      ? selected.filter(p => p !== param)
-                      : [...selected, param];
-                    setNewStock({
-                      ...newStock,
-                      selectedParameters: { ...newStock.selectedParameters, fundamental: updated }
-                    });
-                  },
-                  (param, value) => {
-                    setNewStock({
-                      ...newStock,
-                      parameterValues: {
-                        ...newStock.parameterValues,
-                        fundamental: { ...newStock.parameterValues.fundamental, [param]: value }
-                      }
-                    });
-                  }
-                )}
-
-                {/* Technical Parameters */}
-                {renderParameterSection(
-                  "📈 Technical Parameters",
-                  technicalParameters,
-                  newStock.selectedParameters.technical,
-                  newStock.parameterValues.technical,
-                  (param) => {
-                    const selected = newStock.selectedParameters.technical;
-                    const updated = selected.includes(param) 
-                      ? selected.filter(p => p !== param)
-                      : [...selected, param];
-                    setNewStock({
-                      ...newStock,
-                      selectedParameters: { ...newStock.selectedParameters, technical: updated }
-                    });
-                  },
-                  (param, value) => {
-                    setNewStock({
-                      ...newStock,
-                      parameterValues: {
-                        ...newStock.parameterValues,
-                        technical: { ...newStock.parameterValues.technical, [param]: value }
-                      }
-                    });
-                  }
-                )}
-
-                {/* Other Parameters */}
-                {renderParameterSection(
-                  "🧠 Other Factors",
-                  otherParameters,
-                  newStock.selectedParameters.other,
-                  newStock.parameterValues.other,
-                  (param) => {
-                    const selected = newStock.selectedParameters.other;
-                    const updated = selected.includes(param) 
-                      ? selected.filter(p => p !== param)
-                      : [...selected, param];
-                    setNewStock({
-                      ...newStock,
-                      selectedParameters: { ...newStock.selectedParameters, other: updated }
-                    });
-                  },
-                  (param, value) => {
-                    setNewStock({
-                      ...newStock,
-                      parameterValues: {
-                        ...newStock.parameterValues,
-                        other: { ...newStock.parameterValues.other, [param]: value }
-                      }
-                    });
-                  }
-                )}
-              </div>
-            </div>
-
-            <div className="flex space-x-3 mt-6">
-              <button 
-                onClick={() => setShowAddStock(false)}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleAddStock}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Add Stock
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Stock Modal */}
-      {showEditStock && editingStock && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="glass-effect rounded-xl p-6 max-w-md w-full mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Edit Stock</h3>
-              <button onClick={() => setShowEditStock(false)}>
-                <X className="h-5 w-5 text-gray-500" />
-              </button>
-            </div>
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Stock Symbol *</label>
                 <input
-                  type="number"
-                  value={editingStock.quantity}
-                  onChange={(e) => setEditingStock({...editingStock, quantity: parseInt(e.target.value) || 0})}
-                  className="w-full p-3 border border-gray-300 rounded-lg"
+                  type="text"
+                  value={addSymbol}
+                  onChange={e => setAddSymbol(e.target.value.toUpperCase())}
+                  placeholder="e.g. RELIANCE, TCS, INFY"
+                  className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+                  onKeyDown={e => e.key === 'Enter' && handleAdd()}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Purchase Price (₹)</label>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Company Name (optional)</label>
                 <input
-                  type="number"
-                  step="0.01"
-                  value={editingStock.purchasePrice}
-                  onChange={(e) => setEditingStock({...editingStock, purchasePrice: parseFloat(e.target.value) || 0})}
-                  className="w-full p-3 border border-gray-300 rounded-lg"
+                  type="text"
+                  value={addName}
+                  onChange={e => setAddName(e.target.value)}
+                  placeholder="e.g. Reliance Industries"
+                  className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-300 outline-none"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Purchase Date</label>
-                <input
-                  type="date"
-                  value={editingStock.purchaseDate}
-                  onChange={(e) => setEditingStock({...editingStock, purchaseDate: e.target.value})}
-                  className="w-full p-3 border border-gray-300 rounded-lg"
+                <label className="text-xs font-medium text-gray-600 block mb-1">Notes (optional)</label>
+                <textarea
+                  value={addNotes}
+                  onChange={e => setAddNotes(e.target.value)}
+                  placeholder="Why are you watching this stock?"
+                  className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+                  rows={2}
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Current Price (₹)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={editingStock.currentPrice}
-                  onChange={(e) => setEditingStock({...editingStock, currentPrice: parseFloat(e.target.value) || 0})}
-                  className="w-full p-3 border border-gray-300 rounded-lg"
-                />
+              {addError && <p className="text-xs text-red-500">{addError}</p>}
+              <div className="flex gap-2 pt-2">
+                <button onClick={handleAdd} className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors">
+                  Add to Watchlist
+                </button>
+                <button onClick={() => setShowAddModal(false)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors">
+                  Cancel
+                </button>
               </div>
-            </div>
-            <div className="flex space-x-3 mt-6">
-              <button 
-                onClick={() => setShowEditStock(false)}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleEditStock}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Save Changes
-              </button>
             </div>
           </div>
         </div>

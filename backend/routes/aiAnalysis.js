@@ -6,6 +6,7 @@
 const express = require('express');
 const axios = require('axios');
 
+const trackAPI = require('../utils/trackAPI');
 const router = express.Router();
 
 // ─────────────────────────────────────────────
@@ -72,11 +73,15 @@ async function callPerplexity(apiKey, userPrompt) {
           timeout: 30000,
         }
       );
-      return response.data.choices?.[0]?.message?.content || '';
+      const content = response.data.choices?.[0]?.message?.content || '';
+      const usage = response.data.usage || {};
+      trackAPI('perplexity', 'ai-analysis', { inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens, success: true, model });
+      return content;
     } catch (err) {
       lastError = err;
       const status = err.response?.status;
       console.error(`AI Analysis: ${model} failed (${status || err.message})`);
+      trackAPI('perplexity', 'ai-analysis', { success: false, model });
       if (status === 401 || status === 403) continue;
       break;
     }

@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 
+const trackAPI = require('../utils/trackAPI');
 const router = express.Router();
 
 // Model fallback: sonar-pro first, then smaller model
@@ -35,11 +36,14 @@ async function callPerplexity(apiKey, systemPrompt, userMessage, options = {}) {
 
       const content = response.data.choices?.[0]?.message?.content || '';
       const citations = response.data.citations || [];
+      const usage = response.data.usage || {};
+      trackAPI('perplexity', 'perplexity-proxy', { inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens, success: true, model });
 
       return { content, citations, model };
     } catch (err) {
       lastError = err;
       const status = err.response?.status;
+      trackAPI('perplexity', 'perplexity-proxy', { success: false, model });
       // Auth issue → try next model
       if (status === 401 || status === 403) continue;
       // Other errors → don't retry

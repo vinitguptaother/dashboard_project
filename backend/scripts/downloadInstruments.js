@@ -47,7 +47,13 @@ function parseCSVLine(line) {
 // ─── Download + Decompress + Parse ───────────────────────────────────────────
 function downloadInstrumentsCSV(url, exchange) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, { timeout: 60000 }, (res) => {
+    const req = https.get(url, {
+      timeout: 60000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': '*/*',
+      },
+    }, (res) => {
       if (res.statusCode !== 200) {
         reject(new Error(`HTTP ${res.statusCode} downloading from ${url}`));
         return;
@@ -64,7 +70,7 @@ function downloadInstrumentsCSV(url, exchange) {
           const lines = csv.split('\n');
           if (!lines[0]) return resolve([]);
 
-          // Parse header row
+          // Parse header row — strip quotes from all header names
           const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
           const instruments = [];
 
@@ -79,8 +85,11 @@ function downloadInstrumentsCSV(url, exchange) {
             headers.forEach((h, idx) => { row[h] = (vals[idx] || '').replace(/"/g, ''); });
 
             // Only import equity instruments — skip F&O, ETFs, indices
-            if (row.instrument_type !== 'EQ') continue;
+            // Upstox CSV uses 'EQUITY' (not 'EQ') for the instrument_type field
+            if (row.instrument_type !== 'EQUITY' && row.instrument_type !== 'EQ') continue;
             if (!row.tradingsymbol || !row.instrument_key) continue;
+            // Skip government bonds, treasury bills, SDLs etc. (they have numeric/date-based symbols)
+            if (/^\d/.test(row.tradingsymbol) || row.tradingsymbol.includes('TBILL') || row.tradingsymbol.includes('SDL')) continue;
 
             // Extract ISIN from instrument_key (format: NSE_EQ|INE002A01018)
             const keyParts = row.instrument_key.split('|');

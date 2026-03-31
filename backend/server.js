@@ -82,6 +82,7 @@ const screensRoutes = require('./routes/screens');
 const instrumentsRoutes = require('./routes/instruments');
 const tradeSetupRoutes = require('./routes/tradeSetup');
 const riskManagementRoutes = require('./routes/riskManagement');
+const watchlistRoutes = require('./routes/watchlist');
 
 // Import middleware
 const { auth } = require('./middleware/auth');
@@ -168,7 +169,13 @@ app.use('/api/auth', authRoutes);
 app.use('/api/market', marketRoutes);
 app.use('/api/portfolio', auth, portfolioRoutes);
 app.use('/api/news', newsRoutes);
-app.use('/api/alerts', alertRoutes);
+// Alerts uses req.user.id — inject default user for this single-user dashboard
+const mongoose = require('mongoose');
+const DEFAULT_USER_ID = new mongoose.Types.ObjectId('000000000000000000000001');
+app.use('/api/alerts', (req, res, next) => {
+  if (!req.user) req.user = { id: DEFAULT_USER_ID, email: 'vinit@dashboard.local' };
+  next();
+}, alertRoutes);
 app.use('/api/settings', envConfigRoutes); // No auth for env config to allow initial setup
 app.use('/api/config', auth, apiConfigRoutes);
 app.use('/api/user', auth, userRoutes);
@@ -182,6 +189,9 @@ app.use('/api/perplexity', perplexityProxyRoutes);
 app.use('/api/alice-blue', auth, aliceBlueRoutes);
 app.use('/api/trade-setup', tradeSetupRoutes);
 app.use('/api/risk', riskManagementRoutes);
+app.use('/api/watchlist', watchlistRoutes);
+app.use('/api/api-usage', require('./routes/apiUsage'));
+app.use('/api/options', require('./routes/options'));
 
 // Error handling middleware
 app.use(errorHandler);
@@ -298,15 +308,15 @@ function startScheduledTasks() {
     }
   });
 
-  // ── Instruments weekly re-seed ────────────────────────────────────────────
-  // Re-seeds NSE instruments every Sunday at 6 AM to pick up new listings
+  // ── Instruments weekly full download ──────────────────────────────────────
+  // Downloads ALL NSE+BSE equity instruments from Upstox every Sunday at 6 AM
   cron.schedule('0 6 * * 0', async () => {
     try {
-      console.log('📥 Weekly instruments re-seed starting...');
-      const { seedNSEInstruments } = require('./scripts/seedNSEInstruments');
-      await seedNSEInstruments(false);
+      console.log('📥 Weekly full instruments download starting...');
+      const { importInstruments } = require('./scripts/downloadInstruments');
+      await importInstruments(false);
     } catch (error) {
-      console.error('❌ Weekly instruments re-seed error:', error.message);
+      console.error('❌ Weekly instruments download error:', error.message);
     }
   });
 
@@ -403,18 +413,25 @@ function startScheduledTasks() {
         return;
       }
 
-      // Build instrument key map from Instruments DB (NOT the hardcoded 15-stock map)
+      // Build instrument key map from Instruments DB — use the token field directly
+      // (token stores the full instrument_key like "NSE_EQ|INE002A01018")
+      const upperSymbols = symbols.map(s => s.toUpperCase());
       const dbInstruments = await Instrument.find({
-        symbol: { $in: symbols.map(s => s.toUpperCase()) },
-        isin: { $ne: '' },
+        symbol: { $in: upperSymbols },
+        token: { $ne: '' },
       }).lean();
 
+      // Prefer NSE over BSE when both exist for same symbol
       const symbolToKey = {};
       const keyToSymbol = {};
       for (const inst of dbInstruments) {
-        const key = `NSE_EQ|${inst.isin}`;
-        symbolToKey[inst.symbol.toUpperCase()] = key;
-        keyToSymbol[key] = inst.symbol.toUpperCase();
+        const sym = inst.symbol.toUpperCase();
+        const key = inst.token; // Already full key like "NSE_EQ|INE002A01018"
+        // Only overwrite if this is NSE (preferred) or no entry yet
+        if (!symbolToKey[sym] || inst.exchange === 'NSE') {
+          symbolToKey[sym] = key;
+        }
+        keyToSymbol[key] = sym;
       }
 
       // Log which symbols have no instrument key (can't be monitored)
@@ -669,15 +686,23 @@ async function checkAndImportInstruments() {
   try {
     const Instrument = require('./models/Instrument');
     const count = await Instrument.countDocuments();
-    if (count < 50) {
-      console.log(`📥 Instruments DB has only ${count} records — seeding NSE instruments...`);
-      const { seedNSEInstruments } = require('./scripts/seedNSEInstruments');
-      await seedNSEInstruments(false);
+    if (count < 500) {
+      // Less than 500 instruments = only seed data loaded, need full Upstox download
+      console.log(`📥 Instruments DB has only ${count} records — downloading full Upstox instrument list...`);
+      const { importInstruments } = require('./scripts/downloadInstruments');
+      await importInstruments(false);
     } else {
       console.log(`✅ Instruments DB ready: ${count} instruments loaded`);
     }
   } catch (error) {
     console.error('❌ Instruments startup check failed:', error.message);
+    // Fallback to seed if full download fails
+    try {
+      const { seedNSEInstruments } = require('./scripts/seedNSEInstruments');
+      await seedNSEInstruments(false);
+    } catch (seedErr) {
+      console.error('❌ Seed fallback also failed:', seedErr.message);
+    }
   }
 }
 

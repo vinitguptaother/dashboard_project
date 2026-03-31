@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Layers, LineChart as LineChartIcon, Target, CheckCircle, XCircle, Clock, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { TrendingUp, TrendingDown, Layers, LineChart as LineChartIcon, Target, CheckCircle, XCircle, Clock, ArrowUpRight, ArrowDownRight, Activity, BarChart3, Minus } from 'lucide-react';
 import LiveIndexBar from './LiveIndexBar';
 import PositionSizer from './PositionSizer';
 import DailyPnLWidget from './DailyPnLWidget';
@@ -11,6 +11,8 @@ const BACKEND_URL = 'http://localhost:5002';
 interface TopIdea {
   symbol: string;
   score: number;
+  aiScore: number | null;
+  aiReason: string | null;
   lastPrice: number;
   percentChange: number | null;
 }
@@ -55,6 +57,8 @@ const Dashboard = () => {
   const [tradeStats, setTradeStats] = useState<TradeSetupStats | null>(null);
   const [activeSetups, setActiveSetups] = useState<ActiveSetup[]>([]);
   const [paperStats, setPaperStats] = useState<{ total: number; active: number; wins: number; losses: number; winRate: number | null; avgReturnPct: number | null } | null>(null);
+  const [screenLeaderboard, setScreenLeaderboard] = useState<{ name: string; performanceScore: number; avgHitRate: number | null; avgAIWinRate: number | null; totalBatches: number; status: string }[]>([]);
+  const [marketRegime, setMarketRegime] = useState<{ label: string; color: string; icon: 'up' | 'down' | 'flat'; niftyChange: number | null }>({ label: 'Loading…', color: 'text-gray-500', icon: 'flat', niftyChange: null });
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -65,6 +69,7 @@ const Dashboard = () => {
           setTotalScreens(json.data.totalScreens);
           setActiveBatches(json.data.activeBatches);
           setHitRate(json.data.hitRate);
+          if (json.data.screenLeaderboard?.length) setScreenLeaderboard(json.data.screenLeaderboard);
         }
       } catch (err: any) {
         // Warn only — backend may not be running
@@ -111,10 +116,34 @@ const Dashboard = () => {
       }
     };
 
+    const fetchMarketRegime = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/upstox/ltp?instruments=NIFTY`);
+        const json = await res.json();
+        if (json.status === 'success' && json.data?.NIFTY) {
+          const nifty = json.data.NIFTY;
+          // Calculate % change from lastPrice and cp (closing price / previous close)
+          const pct = nifty.changePercent ?? nifty.change_percent ?? (nifty.cp && nifty.lastPrice ? ((nifty.lastPrice - nifty.cp) / nifty.cp * 100) : 0);
+          if (pct > 0.5) {
+            setMarketRegime({ label: 'Bullish', color: 'text-green-500', icon: 'up', niftyChange: pct });
+          } else if (pct < -0.5) {
+            setMarketRegime({ label: 'Bearish', color: 'text-red-500', icon: 'down', niftyChange: pct });
+          } else {
+            setMarketRegime({ label: 'Sideways', color: 'text-amber-500', icon: 'flat', niftyChange: pct });
+          }
+        } else {
+          setMarketRegime({ label: 'No Data', color: 'text-gray-400', icon: 'flat', niftyChange: null });
+        }
+      } catch {
+        setMarketRegime({ label: 'Offline', color: 'text-gray-400', icon: 'flat', niftyChange: null });
+      }
+    };
+
     fetchStats();
     fetchTopIdeas();
     fetchTradeStats();
     fetchPaperStats();
+    fetchMarketRegime();
   }, []);
 
   return (
@@ -123,9 +152,9 @@ const Dashboard = () => {
       <LiveIndexBar pollMs={5000} />
 
       {/* Section A: Today's Top Ideas */}
-      <div className="glass-effect rounded-xl p-6 shadow-lg">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-          <LineChartIcon className="h-5 w-5 mr-2 text-blue-600" />
+      <div className="glass-effect rounded-xl p-6 shadow-lg accent-left">
+        <h3 className="text-sm font-semibold text-gray-900 mb-4 flex items-center">
+          <LineChartIcon className="h-4 w-4 mr-2 text-blue-500" />
           Today&apos;s Top Ideas
           {topIdeasData && (
             <span className="ml-2 text-xs font-normal text-gray-400">
@@ -152,28 +181,35 @@ const Dashboard = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   % Change
                 </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  AI Insight
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {topIdeasLoading ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-sm text-gray-400">
+                  <td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-400">
                     Loading…
                   </td>
                 </tr>
               ) : !topIdeasData || topIdeasData.topIdeas.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-500">
                     Run your first screen to see today&apos;s top ideas.
                   </td>
                 </tr>
               ) : (
                 topIdeasData.topIdeas.map((idea, idx) => (
                   <tr key={idea.symbol} className="hover:bg-gray-50">
-                    <td className="px-6 py-3 text-sm font-medium text-gray-700">{idx + 1}</td>
-                    <td className="px-6 py-3 text-sm font-semibold text-gray-900">{idea.symbol}</td>
-                    <td className="px-6 py-3 text-sm text-gray-700">{idea.score.toFixed(2)}</td>
-                    <td className="px-6 py-3 text-sm text-gray-700">₹{idea.lastPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td className="px-6 py-3 text-sm font-mono-nums text-gray-500">{idx + 1}</td>
+                    <td className="px-6 py-3 text-sm font-semibold text-blue-500">{idea.symbol}</td>
+                    <td className="px-6 py-3">
+                      <span className={`${idea.aiScore != null ? 'badge-success' : 'badge-primary'}`}>
+                        {idea.aiScore != null ? `${idea.aiScore}/20` : idea.score.toFixed(2)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-3 text-sm font-mono-nums text-gray-700">₹{idea.lastPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td className={`px-6 py-3 text-sm font-medium ${
                       idea.percentChange != null && idea.percentChange > 0
                         ? 'text-green-600'
@@ -183,6 +219,9 @@ const Dashboard = () => {
                     }`}>
                       {idea.percentChange != null ? `${idea.percentChange > 0 ? '+' : ''}${idea.percentChange.toFixed(2)}%` : '–'}
                     </td>
+                    <td className="px-6 py-3 text-xs text-gray-500 max-w-[200px] truncate" title={idea.aiReason || ''}>
+                      {idea.aiReason || '–'}
+                    </td>
                   </tr>
                 ))
               )}
@@ -191,49 +230,135 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Section B: Stat Tiles */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-        <div className="glass-effect rounded-xl p-5 shadow-lg text-center">
-          <Layers className="h-7 w-7 text-blue-600 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-gray-900">{totalScreens}</p>
-          <p className="text-xs text-gray-600 mt-1">Total Screens</p>
+      {/* Section B: Stat Tiles — Top row (3 key stats, Lovable style) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="glass-effect rounded-lg p-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-blue-600/10 flex items-center justify-center shrink-0">
+            <Layers className="w-5 h-5 text-blue-500" />
+          </div>
+          <div>
+            <p className="text-[11px] text-gray-500">Total Screens</p>
+            <p className="text-2xl font-bold font-mono-nums text-gray-900">{totalScreens}</p>
+          </div>
         </div>
-        <div className="glass-effect rounded-xl p-5 shadow-lg text-center">
-          <TrendingUp className="h-7 w-7 text-green-600 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-gray-900">{activeBatches}</p>
-          <p className="text-xs text-gray-600 mt-1">Active Batches</p>
+        <div className="glass-effect rounded-lg p-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-green-600/10 flex items-center justify-center shrink-0">
+            <TrendingUp className="w-5 h-5 text-green-500" />
+          </div>
+          <div>
+            <p className="text-[11px] text-gray-500">Active Idea Batches</p>
+            <p className="text-2xl font-bold font-mono-nums text-gray-900">{activeBatches}</p>
+          </div>
         </div>
-        <div className="glass-effect rounded-xl p-5 shadow-lg text-center">
-          <TrendingDown className="h-7 w-7 text-purple-600 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-gray-900">{hitRate != null ? `${hitRate}%` : '–'}</p>
-          <p className="text-xs text-gray-600 mt-1">3-Month Hit Rate</p>
+        <div className="glass-effect rounded-lg p-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-purple-600/10 flex items-center justify-center shrink-0">
+            <Target className="w-5 h-5 text-purple-500" />
+          </div>
+          <div>
+            <p className="text-[11px] text-gray-500">Last 3-Month Hit Rate</p>
+            <p className="text-2xl font-bold font-mono-nums text-gray-900">{hitRate != null ? `${hitRate}%` : '–'}</p>
+          </div>
         </div>
-        <div className="glass-effect rounded-xl p-5 shadow-lg text-center">
-          <Target className="h-7 w-7 text-orange-600 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-gray-900">
-            {tradeStats?.winRate != null ? `${tradeStats.winRate}%` : '–'}
-          </p>
-          <p className="text-xs text-gray-600 mt-1">AI Setup Win Rate</p>
+      </div>
+
+      {/* Section B2: Secondary stats row */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="glass-effect rounded-lg p-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-orange-600/10 flex items-center justify-center shrink-0">
+            <Target className="w-5 h-5 text-orange-500" />
+          </div>
+          <div>
+            <p className="text-[11px] text-gray-500">AI Setup Win Rate</p>
+            <p className="text-2xl font-bold font-mono-nums text-gray-900">{tradeStats?.winRate != null ? `${tradeStats.winRate}%` : '–'}</p>
+          </div>
         </div>
-        <div className="glass-effect rounded-xl p-5 shadow-lg text-center">
-          <Target className="h-7 w-7 text-indigo-600 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-gray-900">{paperStats?.active ?? 0}</p>
-          <p className="text-xs text-gray-600 mt-1">Paper Trades Active</p>
-          {paperStats && (paperStats.wins > 0 || paperStats.losses > 0) && (
-            <p className="text-xs text-gray-400 mt-0.5">{paperStats.wins}W / {paperStats.losses}L</p>
-          )}
+        <div className="glass-effect rounded-lg p-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-indigo-600/10 flex items-center justify-center shrink-0">
+            <Target className="w-5 h-5 text-indigo-500" />
+          </div>
+          <div>
+            <p className="text-[11px] text-gray-500">Paper Trades Active</p>
+            <p className="text-2xl font-bold font-mono-nums text-gray-900">{paperStats?.active ?? 0}</p>
+            {paperStats && (paperStats.wins > 0 || paperStats.losses > 0) && (
+              <p className="text-[10px] text-gray-500">{paperStats.wins}W / {paperStats.losses}L</p>
+            )}
+          </div>
         </div>
-        <div className="glass-effect rounded-xl p-5 shadow-lg text-center">
-          <CheckCircle className={`h-7 w-7 mx-auto mb-2 ${paperStats?.winRate != null && paperStats.winRate >= 50 ? 'text-green-600' : 'text-red-500'}`} />
-          <p className={`text-2xl font-bold ${paperStats?.winRate != null && paperStats.winRate >= 50 ? 'text-green-600' : paperStats?.winRate != null ? 'text-red-600' : 'text-gray-900'}`}>
-            {paperStats?.winRate != null ? `${paperStats.winRate}%` : '–'}
-          </p>
-          <p className="text-xs text-gray-600 mt-1">Paper Win Rate</p>
-          {paperStats?.avgReturnPct != null && (
-            <p className={`text-xs mt-0.5 ${paperStats.avgReturnPct >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-              Avg {paperStats.avgReturnPct > 0 ? '+' : ''}{paperStats.avgReturnPct}%
+        <div className="glass-effect rounded-lg p-4 flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${paperStats?.winRate != null && paperStats.winRate >= 50 ? 'bg-green-600/10' : 'bg-red-600/10'}`}>
+            <CheckCircle className={`w-5 h-5 ${paperStats?.winRate != null && paperStats.winRate >= 50 ? 'text-green-500' : 'text-red-500'}`} />
+          </div>
+          <div>
+            <p className="text-[11px] text-gray-500">Paper Win Rate</p>
+            <p className={`text-2xl font-bold font-mono-nums ${paperStats?.winRate != null && paperStats.winRate >= 50 ? 'text-green-500' : paperStats?.winRate != null ? 'text-red-500' : 'text-gray-900'}`}>
+              {paperStats?.winRate != null ? `${paperStats.winRate}%` : '–'}
             </p>
-          )}
+            {paperStats?.avgReturnPct != null && (
+              <p className={`text-[10px] ${paperStats.avgReturnPct >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                Avg {paperStats.avgReturnPct > 0 ? '+' : ''}{paperStats.avgReturnPct}%
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Section: Market Regime + Top Gainer/Loser */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* Market Regime */}
+        <div className="glass-effect rounded-lg p-4 flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+            marketRegime.icon === 'up' ? 'bg-green-600/10' : marketRegime.icon === 'down' ? 'bg-red-600/10' : 'bg-amber-600/10'
+          }`}>
+            {marketRegime.icon === 'up' ? <TrendingUp className="w-5 h-5 text-green-500" /> :
+             marketRegime.icon === 'down' ? <TrendingDown className="w-5 h-5 text-red-500" /> :
+             <Minus className="w-5 h-5 text-amber-500" />}
+          </div>
+          <div>
+            <p className="text-[11px] text-gray-500">Market Regime (NIFTY)</p>
+            <p className={`text-xl font-bold ${marketRegime.color}`}>{marketRegime.label}</p>
+            {marketRegime.niftyChange != null && (
+              <p className={`text-[10px] ${marketRegime.niftyChange >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                {marketRegime.niftyChange > 0 ? '+' : ''}{marketRegime.niftyChange.toFixed(2)}% today
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Top Gainer / Loser from Active Trades */}
+        <div className="glass-effect rounded-lg p-4">
+          <p className="text-[11px] text-gray-500 mb-2 flex items-center"><BarChart3 className="w-3 h-3 mr-1" />Top Gainer / Loser (Active Trades)</p>
+          {activeSetups.length === 0 ? (
+            <p className="text-xs text-gray-400">No active trades</p>
+          ) : (() => {
+            const withPnl = activeSetups
+              .map(s => ({
+                symbol: s.symbol,
+                pnl: s.currentPrice && s.entryPrice > 0
+                  ? ((s.currentPrice - s.entryPrice) / s.entryPrice) * 100 * (s.action === 'SELL' ? -1 : 1)
+                  : null
+              }))
+              .filter(s => s.pnl != null) as { symbol: string; pnl: number }[];
+            if (withPnl.length === 0) return <p className="text-xs text-gray-400">Awaiting price data</p>;
+            const sorted = [...withPnl].sort((a, b) => b.pnl - a.pnl);
+            const gainer = sorted[0];
+            const loser = sorted[sorted.length - 1];
+            return (
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <p className="text-xs text-gray-500">Gainer</p>
+                  <p className="text-sm font-semibold text-green-600">{gainer.symbol}</p>
+                  <p className="text-xs font-mono-nums text-green-500">+{gainer.pnl.toFixed(2)}%</p>
+                </div>
+                {loser.symbol !== gainer.symbol && (
+                  <div className="flex-1">
+                    <p className="text-xs text-gray-500">Loser</p>
+                    <p className="text-sm font-semibold text-red-600">{loser.symbol}</p>
+                    <p className="text-xs font-mono-nums text-red-500">{loser.pnl.toFixed(2)}%</p>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </div>
 
@@ -301,6 +426,34 @@ const Dashboard = () => {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Screen Leaderboard */}
+      {screenLeaderboard.length > 0 && (
+        <div className="glass-effect rounded-xl p-6 shadow-lg accent-left">
+          <h3 className="text-sm font-semibold text-gray-900 mb-4 flex items-center">
+            <Activity className="h-4 w-4 mr-2 text-purple-500" />
+            Top Performing Screens
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {screenLeaderboard.map((screen, idx) => (
+              <div key={screen.name} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs font-semibold text-gray-700 truncate">{idx === 0 ? '🥇' : idx === 1 ? '🥈' : '🥉'} {screen.name}</p>
+                  <span className={`badge-${screen.status === 'active' ? 'success' : screen.status === 'underperforming' ? 'warning' : 'primary'}`}>
+                    {screen.status}
+                  </span>
+                </div>
+                <p className="text-xl font-bold font-mono-nums text-gray-900">{screen.performanceScore.toFixed(0)}<span className="text-xs font-normal text-gray-500">/100</span></p>
+                <div className="flex gap-3 mt-1 text-[10px] text-gray-500">
+                  {screen.avgHitRate != null && <span>Hit: {screen.avgHitRate.toFixed(0)}%</span>}
+                  {screen.avgAIWinRate != null && <span>AI Win: {screen.avgAIWinRate.toFixed(0)}%</span>}
+                  <span>{screen.totalBatches} batches</span>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

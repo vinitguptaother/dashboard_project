@@ -24,12 +24,26 @@ import { aiService, MarketSentiment, StockPrediction, StockRecommendation, Patte
 import { Search, Sparkles, ChevronDown, ChevronUp, Shield, FileText, MessageSquare, TrendingDown as TrendDown } from 'lucide-react';
 import { AuthClient } from '../lib/apiService';
 
+const BACKEND_URL = 'http://localhost:5002';
+
+interface ScreenStock {
+  symbol: string;
+  aiScore: number | null;
+  screenName: string;
+  reason: string;
+  percentChange: number | null;
+}
+
 const AIAnalysisTab = () => {
-  const [activeSection, setActiveSection] = useState('overview');
+  const [activeSection, setActiveSection] = useState('my-stocks');
   const [selectedTimeframe, setSelectedTimeframe] = useState('1D');
   const [selectedModel, setSelectedModel] = useState('ensemble');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [screenStocks, setScreenStocks] = useState<ScreenStock[]>([]);
+  const [screenStocksLoading, setScreenStocksLoading] = useState(false);
+  const [selectedScreenFilter, setSelectedScreenFilter] = useState('ALL');
+  const [screenNames, setScreenNames] = useState<string[]>([]);
 
   const [aiInsights, setAiInsights] = useState<{
     marketSentiment: MarketSentiment;
@@ -754,7 +768,7 @@ const AIAnalysisTab = () => {
                         <span>Tone: <span className={`font-semibold ${q.managementTone === 'Confident' ? 'text-green-600' : q.managementTone === 'Defensive' || q.managementTone === 'Evasive' ? 'text-red-600' : 'text-yellow-600'}`}>{q.managementTone}</span></span>
                       </div>
                       {q.keyQuote && (
-                        <p className="text-sm italic text-gray-500 border-l-2 border-gray-300 pl-3">"{q.keyQuote}"</p>
+                        <p className="text-sm italic text-gray-500 border-l-2 border-gray-300 pl-3">&quot;{q.keyQuote}&quot;</p>
                       )}
                     </div>
                   ))}
@@ -935,8 +949,167 @@ const AIAnalysisTab = () => {
     );
   };
 
+  // Fetch top-ranked stocks from all screens
+  const loadScreenStocks = async () => {
+    setScreenStocksLoading(true);
+    try {
+      // Fetch all screens
+      const screensRes = await fetch(`${BACKEND_URL}/api/screens`);
+      const screensJson = await screensRes.json();
+      if (screensJson.status !== 'success') return;
+
+      const screens = screensJson.data || [];
+      const names: string[] = [];
+      const allStocks: ScreenStock[] = [];
+
+      // For each screen, get latest batch
+      for (const screen of screens) {
+        names.push(screen.name);
+        try {
+          const batchRes = await fetch(`${BACKEND_URL}/api/screens/${screen._id}/batches`);
+          const batchJson = await batchRes.json();
+          if (batchJson.status !== 'success' || !batchJson.data?.length) continue;
+
+          // Get latest batch
+          const latestBatchId = batchJson.data[0]._id;
+          const batchDetailRes = await fetch(`${BACKEND_URL}/api/screens/batch/${latestBatchId}`);
+          const batchDetail = await batchDetailRes.json();
+          if (batchDetail.status !== 'success') continue;
+
+          const ranked = batchDetail.data?.rankedResults || [];
+          // Take top 5 from each screen
+          ranked.slice(0, 5).forEach((r: any) => {
+            allStocks.push({
+              symbol: r.symbol,
+              aiScore: r.aiScore || r.score || null,
+              screenName: screen.name,
+              reason: r.aiBreakdown?.reason || '',
+              percentChange: r.percentChange ?? null,
+            });
+          });
+        } catch (e) {
+          // Skip failed batches
+        }
+      }
+
+      setScreenNames(names);
+      setScreenStocks(allStocks);
+    } catch (e) {
+      console.error('Failed to load screen stocks:', e);
+    } finally {
+      setScreenStocksLoading(false);
+    }
+  };
+
+  useEffect(() => { loadScreenStocks(); }, []);
+
+  const renderMyStocks = () => {
+    const filteredStocks = selectedScreenFilter === 'ALL'
+      ? screenStocks
+      : screenStocks.filter(s => s.screenName === selectedScreenFilter);
+
+    // Deduplicate by symbol (show highest score)
+    const deduped = new Map<string, ScreenStock>();
+    filteredStocks.forEach(s => {
+      const existing = deduped.get(s.symbol);
+      if (!existing || (s.aiScore || 0) > (existing.aiScore || 0)) {
+        deduped.set(s.symbol, s);
+      }
+    });
+    const stocks = Array.from(deduped.values()).sort((a, b) => (b.aiScore || 0) - (a.aiScore || 0));
+
+    const scoreColor = (s: number) => s >= 18 ? 'text-green-600' : s >= 12 ? 'text-blue-600' : s >= 6 ? 'text-yellow-600' : 'text-red-600';
+    const scoreBg = (s: number) => s >= 18 ? 'bg-green-100' : s >= 12 ? 'bg-blue-100' : s >= 6 ? 'bg-yellow-100' : 'bg-red-100';
+
+    return (
+      <div className="space-y-6">
+        <div className="glass-effect rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-semibold text-gray-900">Top Stocks from Your Screens</h3>
+            <button onClick={loadScreenStocks} className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center">
+              <RefreshCw className={`h-4 w-4 mr-1 ${screenStocksLoading ? 'animate-spin' : ''}`} /> Refresh
+            </button>
+          </div>
+
+          {/* Screen filter */}
+          <div className="flex flex-wrap gap-2 mb-4">
+            <button
+              onClick={() => setSelectedScreenFilter('ALL')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${selectedScreenFilter === 'ALL' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            >
+              All Screens ({screenStocks.length})
+            </button>
+            {screenNames.map(name => {
+              const count = screenStocks.filter(s => s.screenName === name).length;
+              if (count === 0) return null;
+              return (
+                <button
+                  key={name}
+                  onClick={() => setSelectedScreenFilter(name)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${selectedScreenFilter === name ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                >
+                  {name} ({count})
+                </button>
+              );
+            })}
+          </div>
+
+          {screenStocksLoading ? (
+            <div className="text-center py-8 text-gray-500">Loading screen data...</div>
+          ) : stocks.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-gray-500">No ranked stocks found. Upload CSV and rank batches in the Screens tab first.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">#</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Symbol</th>
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase">AI Score</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Screen</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">AI Insight</th>
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {stocks.map((stock, idx) => (
+                    <tr key={stock.symbol + stock.screenName} className={idx < 3 ? 'bg-green-50' : ''}>
+                      <td className="px-3 py-3 text-sm text-gray-500 font-mono-nums">{idx + 1}</td>
+                      <td className="px-3 py-3 text-sm font-semibold text-blue-600">{stock.symbol}</td>
+                      <td className="px-3 py-3 text-center">
+                        {stock.aiScore != null ? (
+                          <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-bold ${scoreBg(stock.aiScore)} ${scoreColor(stock.aiScore)}`}>
+                            {stock.aiScore}/24
+                          </span>
+                        ) : <span className="text-xs text-gray-300">—</span>}
+                      </td>
+                      <td className="px-3 py-3 text-xs text-gray-500">{stock.screenName}</td>
+                      <td className="px-3 py-3 text-xs text-gray-600 max-w-xs truncate" title={stock.reason}>{stock.reason || '—'}</td>
+                      <td className="px-3 py-3 text-center">
+                        <button
+                          onClick={() => { setDeepResearchSymbol(stock.symbol); setActiveSection('deep-research'); }}
+                          className="px-2 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded hover:bg-purple-200 transition-colors"
+                        >
+                          Deep Research
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderActiveSection = () => {
     switch (activeSection) {
+      case 'my-stocks':
+        return renderMyStocks();
       case 'overview':
         return renderOverview();
       case 'recommendations':
@@ -948,7 +1121,7 @@ const AIAnalysisTab = () => {
       case 'deep-research':
         return renderDeepResearch();
       default:
-        return renderOverview();
+        return renderMyStocks();
     }
   };
 
@@ -989,9 +1162,10 @@ const AIAnalysisTab = () => {
       {/* Navigation Tabs */}
       <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg">
         {[
-          { id: 'overview', label: 'Overview', icon: BarChart3 },
-          { id: 'recommendations', label: 'Recommendations', icon: Star },
-          { id: 'patterns', label: 'Patterns', icon: Target },
+          { id: 'my-stocks', label: 'My Stocks', icon: Star },
+          { id: 'overview', label: 'Market Overview', icon: BarChart3 },
+          { id: 'recommendations', label: 'Recommendations', icon: Target },
+          { id: 'patterns', label: 'Patterns', icon: Activity },
           { id: 'models', label: 'AI Models', icon: Brain },
           { id: 'deep-research', label: 'Deep Research', icon: FileText }
         ].map((tab) => {

@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Target, CheckCircle, XCircle, Clock, RefreshCw, TrendingUp, TrendingDown,
   Activity, BarChart3, Brain, AlertCircle, Zap, ChevronDown, ChevronUp,
-  Pencil, Check, X, Ban, Timer,
+  Pencil, Check, X, Ban, Timer, Trash2,
 } from 'lucide-react';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5002';
@@ -28,6 +28,7 @@ interface PaperTrade {
   exitPrice: number | null;
   closedAt: string | null;
   createdAt: string;
+  screenName?: string;
 }
 
 interface BestWorstTrade {
@@ -74,6 +75,7 @@ const PaperTradingTab = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'ALL' | 'ACTIVE' | 'TARGET_HIT' | 'SL_HIT'>('ALL');
+  const [screenFilter, setScreenFilter] = useState('ALL');
   const [expandedTrade, setExpandedTrade] = useState<string | null>(null);
   const [editingField, setEditingField] = useState<{ tradeId: string; field: 'entryPrice' | 'stopLoss' | 'target' } | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -97,6 +99,21 @@ const PaperTradingTab = () => {
       await fetchStats();
     } catch (err: any) {
       alert(`Failed to update: ${err.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // ── Delete a paper trade permanently ──
+  const handleDelete = async (tradeId: string, symbol: string) => {
+    if (!window.confirm(`Delete paper trade for ${symbol}? This cannot be undone.`)) return;
+    setActionLoading(tradeId);
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/trade-setup/${tradeId}`, { method: 'DELETE' });
+      if (!resp.ok) throw new Error('Failed to delete');
+      await fetchStats();
+    } catch (err: any) {
+      alert(`Failed to delete: ${err.message}`);
     } finally {
       setActionLoading(null);
     }
@@ -174,7 +191,22 @@ const PaperTradingTab = () => {
     return Math.max(1, Math.round((end.getTime() - new Date(trade.createdAt).getTime()) / (1000 * 60 * 60 * 24)));
   };
 
-  const filteredTrades = stats?.recentTrades?.filter(t => filter === 'ALL' || t.status === filter) || [];
+  const filteredTrades = (stats?.recentTrades || []).filter(t => {
+    if (filter !== 'ALL' && t.status !== filter) return false;
+    if (screenFilter !== 'ALL' && (t.screenName || 'Unknown') !== screenFilter) return false;
+    return true;
+  });
+
+  // Get unique screen names for filter
+  const uniqueScreens = Array.from(new Set((stats?.recentTrades || []).map(t => t.screenName || 'Unknown'))).sort();
+
+  // Group trades by screen for visual separation
+  const groupedByScreen = new Map<string, PaperTrade[]>();
+  filteredTrades.forEach(t => {
+    const screen = t.screenName || 'Unknown';
+    if (!groupedByScreen.has(screen)) groupedByScreen.set(screen, []);
+    groupedByScreen.get(screen)!.push(t);
+  });
 
   // ── Loading / Error ──────────────────────────────────────────────────────────
   if (loading && !stats) {
@@ -333,21 +365,44 @@ const PaperTradingTab = () => {
 
       {/* ── Section D: Trades Table ───────────────────────────────────────────── */}
       <div className="glass-effect rounded-xl p-6 shadow-lg">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Paper Trades</h3>
-          <div className="flex gap-2">
-            {(['ALL', 'ACTIVE', 'TARGET_HIT', 'SL_HIT'] as const).map(f => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  filter === f ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                {f === 'ALL' ? 'All' : f === 'ACTIVE' ? 'Active' : f === 'TARGET_HIT' ? 'Wins' : 'Losses'}
-              </button>
-            ))}
+        <div className="flex flex-col gap-3 mb-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">Paper Trades</h3>
+            <div className="flex gap-2">
+              {(['ALL', 'ACTIVE', 'TARGET_HIT', 'SL_HIT'] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    filter === f ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {f === 'ALL' ? 'All' : f === 'ACTIVE' ? 'Active' : f === 'TARGET_HIT' ? 'Wins' : 'Losses'}
+                </button>
+              ))}
+            </div>
           </div>
+          {/* Screen filter */}
+          {uniqueScreens.length > 1 && (
+            <div className="flex flex-wrap gap-1.5">
+              <span className="text-xs text-gray-500 self-center mr-1">Screen:</span>
+              <button
+                onClick={() => setScreenFilter('ALL')}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${screenFilter === 'ALL' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              >
+                All
+              </button>
+              {uniqueScreens.map(name => (
+                <button
+                  key={name}
+                  onClick={() => setScreenFilter(name)}
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${screenFilter === name ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {filteredTrades.length === 0 ? (
@@ -372,6 +427,11 @@ const PaperTradingTab = () => {
                         {trade.action}
                       </span>
                       <span className="font-bold text-gray-900">{trade.symbol}</span>
+                      {trade.screenName && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-600 border border-indigo-100">
+                          {trade.screenName}
+                        </span>
+                      )}
                       <span className="text-sm text-gray-500">@ ₹{trade.entryPrice.toLocaleString('en-IN')}</span>
                     </div>
 
@@ -521,6 +581,26 @@ const PaperTradingTab = () => {
                             className="flex items-center gap-1 px-3 py-1.5 bg-yellow-50 text-yellow-700 rounded-lg text-xs font-medium hover:bg-yellow-100 border border-yellow-200 transition-colors disabled:opacity-50"
                           >
                             <Timer className="h-3 w-3" /> Expired
+                          </button>
+                          <button
+                            onClick={() => handleDelete(trade._id, trade.symbol)}
+                            disabled={actionLoading === trade._id}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg text-xs font-medium hover:bg-red-200 border border-red-300 transition-colors disabled:opacity-50 ml-auto"
+                          >
+                            <Trash2 className="h-3 w-3" /> Delete
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Delete button for closed/resolved trades */}
+                      {trade.status !== 'ACTIVE' && (
+                        <div className="flex justify-end mb-2">
+                          <button
+                            onClick={() => handleDelete(trade._id, trade.symbol)}
+                            disabled={actionLoading === trade._id}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg text-xs font-medium hover:bg-red-200 border border-red-300 transition-colors disabled:opacity-50"
+                          >
+                            <Trash2 className="h-3 w-3" /> Delete
                           </button>
                         </div>
                       )}

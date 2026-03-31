@@ -4,6 +4,9 @@ const { body, validationResult } = require('express-validator');
 const MarketData = require('../models/MarketData');
 const { optionalAuth } = require('../middleware/auth');
 
+const aiService = require('../services/aiService');
+const trackAPI = require('../utils/trackAPI');
+
 const router = express.Router();
 
 // Cache duration in seconds
@@ -657,28 +660,46 @@ router.get('/stock-analysis/:symbol', optionalAuth, async (req, res) => {
       const apiKey = process.env.PERPLEXITY_API_KEY;
       if (apiKey && apiKey !== 'your_perplexity_api_key') {
         const fundPrompt = `Get the current fundamental data for ${symbol} (${priceData.companyName || symbol}) stock listed on NSE India.
+Search Screener.in and Trendlyne for the most accurate data.
 Return ONLY this JSON (no other text):
 {
   "PE_Ratio": <trailing P/E ratio as number or null>,
   "Forward_PE": <forward P/E as number or null>,
   "PB_Ratio": <price to book ratio as number or null>,
   "EPS": <earnings per share TTM in INR as number or null>,
-  "ROE": <return on equity as percentage number or null>,
-  "ROA": <return on assets as percentage number or null>,
-  "Profit_Margin": <net profit margin as percentage number or null>,
-  "Operating_Margin": <operating margin as percentage number or null>,
-  "Revenue_Growth": <YoY revenue growth as percentage number or null>,
-  "Earnings_Growth": <YoY earnings growth as percentage number or null>,
+  "ROE": <return on equity % as number or null>,
+  "ROA": <return on assets % as number or null>,
+  "ROCE": <return on capital employed % as number or null>,
+  "Profit_Margin": <net profit margin % as number or null>,
+  "Operating_Margin": <operating profit margin OPM % as number or null>,
+  "Revenue_Growth": <YoY revenue/sales growth % as number or null>,
+  "Earnings_Growth": <YoY net profit growth % as number or null>,
+  "Compounded_Sales_Growth_3yr": <3-year compounded sales growth % or null>,
+  "Compounded_Sales_Growth_5yr": <5-year compounded sales growth % or null>,
+  "Compounded_Profit_Growth_3yr": <3-year compounded profit growth % or null>,
+  "Compounded_Profit_Growth_5yr": <5-year compounded profit growth % or null>,
+  "Stock_Price_CAGR_3yr": <3-year stock price CAGR % or null>,
+  "Stock_Price_CAGR_5yr": <5-year stock price CAGR % or null>,
+  "Quarterly_Sales_Growth": <latest quarter sales growth YoY % or null>,
+  "Quarterly_Profit_Growth": <latest quarter profit growth YoY % or null>,
   "Debt_Equity": <debt to equity ratio as number or null>,
   "Current_Ratio": <current ratio as number or null>,
-  "Dividend_Yield": <dividend yield as percentage number or null>,
+  "Interest_Coverage": <interest coverage ratio as number or null>,
+  "Cash_From_Operations_Cr": <cash from operating activity in crores or null>,
+  "Free_Cash_Flow_Cr": <free cash flow in crores or null>,
+  "Debtor_Days": <debtor days as number or null>,
+  "Working_Capital_Days": <working capital days as number or null>,
+  "Dividend_Yield": <dividend yield % as number or null>,
   "Book_Value": <book value per share in INR as number or null>,
+  "Face_Value": <face value per share in INR as number or null>,
   "Market_Cap_Cr": <market cap in crores as number or null>,
   "Beta": <beta as number or null>,
-  "Promoter_Holding": <promoter holding percentage or null>,
-  "FII_Holding": <FII holding percentage or null>
+  "Promoter_Holding": <promoter holding % or null>,
+  "FII_Holding": <FII holding % or null>,
+  "DII_Holding": <DII/mutual fund holding % or null>,
+  "Number_of_Shareholders": <total number of shareholders or null>
 }
-Use the most recent available data. All percentage values should be numbers (e.g., 15.5 for 15.5%).`;
+Use the most recent available data from Screener.in. All percentage values should be numbers (e.g., 15.5 for 15.5%).`;
 
         const MODELS_F = ['sonar-pro', 'llama-3.1-sonar-small-128k-online'];
         let aiText = null;
@@ -692,7 +713,7 @@ Use the most recent available data. All percentage values should be numbers (e.g
                   { role: 'system', content: 'You are a financial data provider for Indian stocks (NSE/BSE). Today is ' + new Date().toISOString().split('T')[0] + '. Return ONLY valid JSON with real data.' },
                   { role: 'user', content: fundPrompt },
                 ],
-                max_tokens: 800,
+                max_tokens: 1500,
                 temperature: 0.2,
               },
               {
@@ -701,8 +722,11 @@ Use the most recent available data. All percentage values should be numbers (e.g
               }
             );
             aiText = resp.data.choices?.[0]?.message?.content;
+            const fUsage = resp.data.usage || {};
+            trackAPI('perplexity', 'stock-fundamentals', { inputTokens: fUsage.prompt_tokens, outputTokens: fUsage.completion_tokens, success: true, model });
             break;
           } catch (err) {
+            trackAPI('perplexity', 'stock-fundamentals', { success: false, model });
             if (err.response?.status === 401 || err.response?.status === 403) continue;
             break;
           }
@@ -728,24 +752,50 @@ Use the most recent available data. All percentage values should be numbers (e.g
                   return `₹${v.toLocaleString('en-IN')} Cr`;
                 };
                 fundamentals = {
+                  // Valuation
                   'P/E Ratio (TTM)': fmt(fd.PE_Ratio),
                   'Forward P/E': fmt(fd.Forward_PE),
                   'P/B Ratio': fmt(fd.PB_Ratio),
                   'EPS (TTM)': fd.EPS != null ? `₹${fd.EPS}` : 'N/A',
-                  'ROE': fmt(fd.ROE, '%'),
-                  'ROA': fmt(fd.ROA, '%'),
-                  'Profit Margin': fmt(fd.Profit_Margin, '%'),
-                  'Operating Margin': fmt(fd.Operating_Margin, '%'),
-                  'Revenue Growth (YoY)': fmt(fd.Revenue_Growth, '%'),
-                  'Earnings Growth (YoY)': fmt(fd.Earnings_Growth, '%'),
-                  'Debt/Equity': fmt(fd.Debt_Equity),
-                  'Current Ratio': fmt(fd.Current_Ratio),
-                  'Dividend Yield': fmt(fd.Dividend_Yield, '%'),
                   'Book Value': fd.Book_Value != null ? `₹${fd.Book_Value}` : 'N/A',
+                  'Face Value': fd.Face_Value != null ? `₹${fd.Face_Value}` : 'N/A',
                   'Market Cap': fmtCr(fd.Market_Cap_Cr),
                   'Beta': fmt(fd.Beta),
+                  // Profitability
+                  'ROE': fmt(fd.ROE, '%'),
+                  'ROA': fmt(fd.ROA, '%'),
+                  'ROCE': fmt(fd.ROCE, '%'),
+                  'Profit Margin': fmt(fd.Profit_Margin, '%'),
+                  'Operating Margin': fmt(fd.Operating_Margin, '%'),
+                  // Growth
+                  'Revenue Growth (YoY)': fmt(fd.Revenue_Growth, '%'),
+                  'Earnings Growth (YoY)': fmt(fd.Earnings_Growth, '%'),
+                  'Sales Growth (3yr CAGR)': fmt(fd.Compounded_Sales_Growth_3yr, '%'),
+                  'Sales Growth (5yr CAGR)': fmt(fd.Compounded_Sales_Growth_5yr, '%'),
+                  'Profit Growth (3yr CAGR)': fmt(fd.Compounded_Profit_Growth_3yr, '%'),
+                  'Profit Growth (5yr CAGR)': fmt(fd.Compounded_Profit_Growth_5yr, '%'),
+                  'Stock Price CAGR (3yr)': fmt(fd.Stock_Price_CAGR_3yr, '%'),
+                  'Stock Price CAGR (5yr)': fmt(fd.Stock_Price_CAGR_5yr, '%'),
+                  'Quarterly Sales Growth': fmt(fd.Quarterly_Sales_Growth, '%'),
+                  'Quarterly Profit Growth': fmt(fd.Quarterly_Profit_Growth, '%'),
+                  // Financial Health
+                  'Debt/Equity': fmt(fd.Debt_Equity),
+                  'Current Ratio': fmt(fd.Current_Ratio),
+                  'Interest Coverage': fmt(fd.Interest_Coverage),
+                  // Cash Flow
+                  'Cash from Operations': fd.Cash_From_Operations_Cr != null ? fmtCr(fd.Cash_From_Operations_Cr) : 'N/A',
+                  'Free Cash Flow': fd.Free_Cash_Flow_Cr != null ? fmtCr(fd.Free_Cash_Flow_Cr) : 'N/A',
+                  // Efficiency
+                  'Debtor Days': fmt(fd.Debtor_Days),
+                  'Working Capital Days': fmt(fd.Working_Capital_Days),
+                  // Dividends
+                  'Dividend Yield': fmt(fd.Dividend_Yield, '%'),
+                  // Ownership
                   'Promoter Holding': fmt(fd.Promoter_Holding, '%'),
                   'FII Holding': fmt(fd.FII_Holding, '%'),
+                  'DII Holding': fmt(fd.DII_Holding, '%'),
+                  'No. of Shareholders': fd.Number_of_Shareholders != null ? Number(fd.Number_of_Shareholders).toLocaleString('en-IN') : 'N/A',
+                  // Price Range
                   '52-Week High': priceData.fiftyTwoWeekHigh ? `₹${priceData.fiftyTwoWeekHigh}` : 'N/A',
                   '52-Week Low': priceData.fiftyTwoWeekLow ? `₹${priceData.fiftyTwoWeekLow}` : 'N/A',
                 };
@@ -885,8 +935,11 @@ Include 3-5 most relevant recent news items. Use real news from the internet.`;
               }
             );
             aiText = resp.data.choices?.[0]?.message?.content;
+            const nUsage = resp.data.usage || {};
+            trackAPI('perplexity', 'stock-news', { inputTokens: nUsage.prompt_tokens, outputTokens: nUsage.completion_tokens, success: true, model });
             break;
           } catch (err) {
+            trackAPI('perplexity', 'stock-news', { success: false, model });
             if (err.response?.status === 401 || err.response?.status === 403) continue;
             break;
           }
@@ -929,7 +982,12 @@ Include 3-5 most relevant recent news items. Use real news from the internet.`;
           ? `Fundamentals: P/E=${fundamentals['P/E Ratio (TTM)']}, ROE=${fundamentals['ROE']}, Profit Margin=${fundamentals['Profit Margin']}, Debt/Equity=${fundamentals['Debt/Equity']}`
           : '';
 
-        const recoPrompt = `Analyze ${symbol} (${priceData.companyName || symbol}) stock on NSE India at current price ₹${priceData.currentPrice || 'unknown'}.
+        // Fetch market context (cached 10 min — adds NIFTY trend, VIX, regime)
+        let marketContext = '';
+        try { marketContext = await aiService.getMarketContext(); } catch (e) { /* non-critical */ }
+
+        const recoPrompt = `${marketContext}
+Analyze ${symbol} (${priceData.companyName || symbol}) stock on NSE India at current price ₹${priceData.currentPrice || 'unknown'}.
 ${techSummary}
 ${fundSummary}
 Recent news sentiment: ${news.length > 0 ? news.map(n => n.sentiment).join(', ') : 'unavailable'}
@@ -971,8 +1029,11 @@ Be realistic. Use actual current prices. If unsure, say HOLD.`;
               }
             );
             aiText = resp.data.choices?.[0]?.message?.content;
+            const rUsage = resp.data.usage || {};
+            trackAPI('perplexity', 'stock-recommendation', { inputTokens: rUsage.prompt_tokens, outputTokens: rUsage.completion_tokens, success: true, model });
             break;
           } catch (err) {
+            trackAPI('perplexity', 'stock-recommendation', { success: false, model });
             if (err.response?.status === 401 || err.response?.status === 403) continue;
             break;
           }
@@ -1000,38 +1061,7 @@ Be realistic. Use actual current prices. If unsure, say HOLD.`;
       console.warn(`⚠️ AI recommendation failed for ${symbol}:`, recoErr.message);
     }
 
-    // ── 5. Auto-save as paper trade ────────────────────────────────────────
-    if (recommendation && ['BUY', 'SELL', 'ACCUMULATE'].includes(recommendation.action)) {
-      try {
-        const TradeSetup = require('../models/TradeSetup');
-        const entry = Number(recommendation.entryPrice) || priceData.currentPrice;
-        const sl = Number(recommendation.stopLoss) || 0;
-        const tgt = Number(recommendation.targetPrice) || 0;
-        const risk = Math.abs(entry - sl);
-        const reward = Math.abs(tgt - entry);
-        const rrRatio = risk > 0 ? `1:${(reward / risk).toFixed(1)}` : 'N/A';
-
-        await TradeSetup.create({
-          symbol,
-          tradeType: 'SWING',
-          action: recommendation.action,
-          entryPrice: entry,
-          stopLoss: sl,
-          target: tgt,
-          currentPrice: priceData.currentPrice,
-          holdingDuration: recommendation.timeframe || '2-4 weeks',
-          riskRewardRatio: rrRatio,
-          confidence: Math.min(100, Math.max(0, Number(recommendation.confidence) || 50)),
-          reasoning: recommendation.reasoning || '',
-          riskFactors: Array.isArray(recommendation.risks) ? recommendation.risks : [],
-          isPaperTrade: true,
-          source: 'AI_ANALYSIS',
-        });
-        console.log(`📝 Auto-saved paper trade: ${recommendation.action} ${symbol}`);
-      } catch (ptErr) {
-        console.warn(`⚠️ Auto paper trade save failed for ${symbol}:`, ptErr.message);
-      }
-    }
+    // ── 5. Paper trading is now manual — user clicks "Paper Trade This" in the frontend ──
 
     // ── 6. Respond ───────────────────────────────────────────────────────────
     res.json({

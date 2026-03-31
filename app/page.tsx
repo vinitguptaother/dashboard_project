@@ -15,6 +15,7 @@ import APIIntegrationTab from './components/APIIntegrationTab';
 import SettingsTab from './components/SettingsTab';
 import TradeJournalTab from './components/TradeJournalTab';
 import PaperTradingTab from './components/PaperTradingTab';
+import OptionsTab from './components/OptionsTab';
 import AIChatbot from './components/AIChatbot';
 
 export default function Home() {
@@ -46,6 +47,8 @@ export default function Home() {
         return <TradeJournalTab />;
       case 'paper-trading':
         return <PaperTradingTab />;
+      case 'options':
+        return <OptionsTab />;
       case 'settings':
         return <SettingsTab />;
       default:
@@ -56,7 +59,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
       <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
-      <main className="pt-20 px-4 pb-8">
+      <main className="pt-[68px] px-4 pb-8">
         <div className="max-w-7xl mx-auto">
           {renderActiveTab()}
         </div>

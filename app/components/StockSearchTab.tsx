@@ -94,6 +94,8 @@ const StockSearchTab = () => {
   const [stockTimeframe, setStockTimeframe] = useState<'1D' | '1W' | '1M' | '3M' | '6M' | '1Y'>('1M');
   const [chartData, setChartData] = useState<{ time: string; price: number; volume: number }[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [paperTradeLoading, setPaperTradeLoading] = useState(false);
+  const [paperTradeSaved, setPaperTradeSaved] = useState(false);
 
   // ── Search stocks ──────────────────────────────────────────────────────────
   const handleSearch = async (query: string) => {
@@ -130,6 +132,7 @@ const StockSearchTab = () => {
     setIsAnalyzing(true);
     setError(null);
     setAnalysis(null);
+    setPaperTradeSaved(false);
     setActiveTab('overview');
 
     try {
@@ -286,6 +289,40 @@ const StockSearchTab = () => {
     );
   };
 
+  // ── Paper Trade: manual save handler ──────────────────────────────────────
+  const handlePaperTrade = async () => {
+    if (!analysis?.recommendation || !analysis.price) return;
+    const r = analysis.recommendation;
+    setPaperTradeLoading(true);
+    try {
+      const resp = await fetch(`${BACKEND}/api/trade-setup/paper`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol: analysis.symbol,
+          action: r.action,
+          entryPrice: r.entryPrice || analysis.price.currentPrice,
+          stopLoss: r.stopLoss,
+          target: r.targetPrice,
+          confidence: r.confidence,
+          reasoning: r.reasoning,
+          riskFactors: r.risks || [],
+          holdingDuration: r.timeframe,
+          tradeType: 'SWING',
+        }),
+      });
+      if (resp.ok) {
+        setPaperTradeSaved(true);
+      } else {
+        alert('Failed to save paper trade');
+      }
+    } catch (e) {
+      console.error('Paper trade save failed:', e);
+      alert('Failed to save paper trade');
+    }
+    setPaperTradeLoading(false);
+  };
+
   // ── Render: AI Recommendation Card ────────────────────────────────────────
   const renderRecommendationCard = () => {
     if (!analysis?.recommendation) return null;
@@ -353,14 +390,30 @@ const StockSearchTab = () => {
           </div>
         )}
 
-        {/* Auto Paper Trade Notice */}
+        {/* Paper Trade Button — manual save */}
         {['BUY', 'SELL', 'ACCUMULATE'].includes(r.action) && (
           <div className="mt-4 pt-4 border-t border-gray-200">
-            <div className="w-full py-2.5 rounded-lg bg-green-50 text-green-700 text-sm font-medium text-center flex items-center justify-center gap-2">
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-              Auto-saved as Paper Trade
-            </div>
-            <p className="text-xs text-gray-500 text-center mt-1">Track performance in the Paper Trading tab</p>
+            {paperTradeSaved ? (
+              <>
+                <div className="w-full py-2.5 rounded-lg bg-green-50 text-green-700 text-sm font-medium text-center flex items-center justify-center gap-2">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                  Saved as Paper Trade
+                </div>
+                <p className="text-xs text-gray-500 text-center mt-1">Track performance in the Paper Trading tab</p>
+              </>
+            ) : (
+              <button
+                onClick={handlePaperTrade}
+                disabled={paperTradeLoading}
+                className="w-full py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium text-center flex items-center justify-center gap-2 hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                {paperTradeLoading ? (
+                  <><RefreshCw className="h-4 w-4 animate-spin" /> Saving...</>
+                ) : (
+                  <><Target className="h-4 w-4" /> Paper Trade This</>
+                )}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -380,13 +433,15 @@ const StockSearchTab = () => {
       );
     }
 
-    // Group fundamentals
-    const valuation = ['P/E Ratio (TTM)', 'Forward P/E', 'P/B Ratio', 'EPS (TTM)', 'Book Value', 'Market Cap', 'Beta'];
-    const profitability = ['ROE', 'ROA', 'Profit Margin', 'Operating Margin'];
-    const growth = ['Revenue Growth (YoY)', 'Earnings Growth (YoY)'];
-    const health = ['Debt/Equity', 'Current Ratio'];
+    // Group fundamentals (matching Screener.in layout)
+    const valuation = ['P/E Ratio (TTM)', 'Forward P/E', 'P/B Ratio', 'EPS (TTM)', 'Book Value', 'Face Value', 'Market Cap', 'Beta'];
+    const profitability = ['ROE', 'ROA', 'ROCE', 'Profit Margin', 'Operating Margin'];
+    const growth = ['Revenue Growth (YoY)', 'Earnings Growth (YoY)', 'Sales Growth (3yr CAGR)', 'Sales Growth (5yr CAGR)', 'Profit Growth (3yr CAGR)', 'Profit Growth (5yr CAGR)', 'Stock Price CAGR (3yr)', 'Stock Price CAGR (5yr)', 'Quarterly Sales Growth', 'Quarterly Profit Growth'];
+    const health = ['Debt/Equity', 'Current Ratio', 'Interest Coverage'];
+    const cashflow = ['Cash from Operations', 'Free Cash Flow'];
+    const efficiency = ['Debtor Days', 'Working Capital Days'];
     const dividends = ['Dividend Yield', 'Dividend Rate'];
-    const ownership = ['Promoter Holding', 'FII Holding'];
+    const ownership = ['Promoter Holding', 'FII Holding', 'DII Holding', 'No. of Shareholders'];
     const priceRange = ['52-Week High', '52-Week Low', 'Avg Volume (10d)'];
 
     const renderGroup = (title: string, icon: any, keys: string[]) => {
@@ -416,6 +471,8 @@ const StockSearchTab = () => {
         {renderGroup('Profitability', TrendingUp, profitability)}
         {renderGroup('Growth', Zap, growth)}
         {renderGroup('Financial Health', Shield, health)}
+        {renderGroup('Cash Flow', Activity, cashflow)}
+        {renderGroup('Efficiency', Clock, efficiency)}
         {renderGroup('Dividends', Star, dividends)}
         {renderGroup('Ownership', Shield, ownership)}
         {renderGroup('Price Range', Activity, priceRange)}

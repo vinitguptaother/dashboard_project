@@ -1,10 +1,153 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
+const axios = require('axios');
 const Screen = require('../models/Screen');
 const ScreenBatch = require('../models/ScreenBatch');
 const Instrument = require('../models/Instrument');
 const { upstoxService } = require('../../services/upstoxService');
 const { apiLogger } = require('../middleware/logger');
+const aiService = require('../services/aiService');
+const trackAPI = require('../utils/trackAPI');
+
+// ─────────────────────────────────────────────
+// AI Fundamental Ranking via Perplexity
+// ─────────────────────────────────────────────
+const AI_RANK_MODELS = ['sonar-pro', 'llama-3.1-sonar-small-128k-online'];
+
+async function callPerplexityForRanking(apiKey, prompt) {
+  let lastError = null;
+  for (const model of AI_RANK_MODELS) {
+    try {
+      const resp = await axios.post(
+        'https://api.perplexity.ai/chat/completions',
+        {
+          model,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are a senior Indian stock market analyst specializing in fundamental analysis for NSE/BSE stocks. ' +
+                'You score stocks on fundamentals using live data from Screener.in, Trendlyne, and MoneyControl. ' +
+                "Today's date is " + new Date().toISOString().split('T')[0] + '. ' +
+                'IMPORTANT: Respond with ONLY valid JSON — no markdown, no code blocks, no text outside the JSON.',
+            },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.2,
+          max_tokens: 3000,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 45000,
+        }
+      );
+      const content = resp.data?.choices?.[0]?.message?.content || null;
+      const usage = resp.data?.usage || {};
+      trackAPI('perplexity', 'screen-ranking', { inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens, success: true, model });
+      return content;
+    } catch (err) {
+      lastError = err;
+      trackAPI('perplexity', 'screen-ranking', { success: false, model });
+      if (err.response?.status !== 401) break;
+    }
+  }
+  throw lastError || new Error('AI ranking failed');
+}
+
+function extractJSON(text) {
+  if (!text) return null;
+  // Try direct parse first
+  try { return JSON.parse(text); } catch {}
+  // Try extracting from code blocks
+  const codeBlock = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (codeBlock) try { return JSON.parse(codeBlock[1].trim()); } catch {}
+  // Try finding first [ or {
+  const start = text.search(/[\[{]/);
+  const end = text.lastIndexOf(text[start] === '[' ? ']' : '}');
+  if (start >= 0 && end > start) {
+    try { return JSON.parse(text.slice(start, end + 1)); } catch {}
+  }
+  return null;
+}
+
+/**
+ * AI Fundamental Ranking: Sends stock symbols to Perplexity for fundamental scoring.
+ * Returns a Map of symbol → { aiScore (0-20), breakdown }
+ * Falls back gracefully — if AI fails, returns empty map (price ranking used instead).
+ */
+async function getAIFundamentalScores(symbols) {
+  const apiKey = process.env.PERPLEXITY_API_KEY;
+  if (!apiKey || symbols.length === 0) return new Map();
+
+  try {
+    const symbolList = symbols.slice(0, 40).join(', '); // Cap at 40 to avoid token limits
+
+    // Fetch market context (cached 10 min — adds NIFTY trend, VIX, regime)
+    let marketContext = '';
+    try { marketContext = await aiService.getMarketContext(); } catch (e) { /* non-critical */ }
+
+    const prompt = `${marketContext}
+Score these Indian stocks (NSE/BSE) on FUNDAMENTALS for swing trading and long-term investing.
+
+STOCKS: ${symbolList}
+
+For EACH stock, search Screener.in and Trendlyne for live data and score on these 6 parameters (0-4 points each, total 0-24):
+
+1. FINANCIAL HEALTH (0-4): ROE > 15% = good, ROCE > 15% = good, Debt/Equity < 1 = good, positive cash flow = good
+2. GROWTH (0-4): Revenue growth > 15% YoY = good, Profit growth > 20% YoY = great, consistent quarterly growth = bonus
+3. VALUATION (0-4): P/E below industry avg = good, PEG < 1.5 = good, P/B reasonable for sector = good
+4. TECHNICAL STRENGTH (0-4): Price above 50 DMA = good, above 200 DMA = great, RSI 40-70 = good (not overbought)
+5. MOMENTUM & ORDER FLOW (0-4): Delivery % > 50% = good, volume spike vs 20-day avg = bonus, bulk/block deals in last 7 days = bonus
+6. INSTITUTIONAL QUALITY (0-4): Promoter holding stable/increasing = good, FII/DII net buying = good, no pledge concerns = good
+
+Return ONLY this JSON array (no other text):
+[
+  { "symbol": "STOCKNAME", "aiScore": 19, "health": 3, "growth": 4, "valuation": 3, "technical": 3, "orderFlow": 3, "institutional": 3, "reason": "Strong ROE 22%, profit growth 35% YoY, delivery 58%, FII increasing" },
+  ...
+]
+
+IMPORTANT: Use the EXACT stock names I gave you. Score ALL stocks. If you can't find data for a stock, give it a conservative score of 10-14 with reason "Limited data".`;
+
+    apiLogger.info('Screens API', 'AI fundamental ranking start', { stockCount: symbols.length });
+
+    const rawResponse = await callPerplexityForRanking(apiKey, prompt);
+    const parsed = extractJSON(rawResponse);
+
+    if (!Array.isArray(parsed)) {
+      apiLogger.warn('Screens API', 'AI ranking returned non-array', { raw: rawResponse?.slice(0, 200) });
+      return new Map();
+    }
+
+    const scoreMap = new Map();
+    for (const item of parsed) {
+      if (item.symbol && typeof item.aiScore === 'number') {
+        scoreMap.set(item.symbol.toUpperCase(), {
+          aiScore: Math.min(24, Math.max(0, item.aiScore)),
+          health: item.health || 0,
+          growth: item.growth || 0,
+          valuation: item.valuation || 0,
+          technical: item.technical || 0,
+          orderFlow: item.orderFlow || item.momentum || 0, // backward compat with old 'momentum' field
+          institutional: item.institutional || 0,
+          reason: item.reason || '',
+        });
+      }
+    }
+
+    apiLogger.info('Screens API', 'AI fundamental ranking complete', {
+      requested: symbols.length,
+      scored: scoreMap.size,
+    });
+
+    return scoreMap;
+  } catch (err) {
+    apiLogger.error('Screens API', 'AI fundamental ranking failed (falling back to price)', err.message);
+    return new Map(); // Graceful fallback — price ranking will be used
+  }
+}
 
 // Escape special regex characters for safe use in RegExp constructors
 function escapeRegex(str) {
@@ -229,6 +372,18 @@ router.get('/stats', async (req, res) => {
       // hitRate stays null — dashboard will show "–"
     }
 
+    // --- Screen leaderboard (top 3 by performance score) ---
+    let screenLeaderboard = [];
+    try {
+      screenLeaderboard = await Screen.find({ performanceScore: { $ne: null } })
+        .sort({ performanceScore: -1 })
+        .limit(3)
+        .select('name performanceScore avgHitRate avgAIWinRate totalBatches status')
+        .lean();
+    } catch (lbErr) {
+      apiLogger.error('Screens API', 'stats:leaderboard', lbErr);
+    }
+
     apiLogger.info('Screens API', 'stats', { totalScreens, activeBatches, hitRate });
 
     res.json({
@@ -237,6 +392,7 @@ router.get('/stats', async (req, res) => {
         totalScreens,
         activeBatches,
         hitRate,
+        screenLeaderboard,
       },
     });
   } catch (error) {
@@ -269,6 +425,8 @@ router.get('/top-ideas', async (req, res) => {
       .map((s) => ({
         symbol: s.symbol,
         score: s.score,
+        aiScore: s.aiScore ?? null,
+        aiReason: s.aiBreakdown?.reason ?? null,
         lastPrice: s.lastPrice,
         percentChange: s.percentChange ?? null,
       }));
@@ -349,12 +507,11 @@ router.get('/performance', async (req, res) => {
       orConditions.length > 0
         ? await Instrument.find({
             $or: orConditions,
-            exchange: { $in: ['NSE_EQ', 'BSE_EQ'] },
-            segment: 'EQUITY',
+            exchange: { $in: ['NSE_EQ', 'BSE_EQ', 'NSE', 'BSE'] },
           })
         : [];
 
-    const exchangeRank = (inst) => (inst.exchange === 'NSE_EQ' ? 0 : 1);
+    const exchangeRank = (inst) => (inst.exchange === 'NSE_EQ' || inst.exchange === 'NSE' ? 0 : 1);
     const instrumentMap = new Map();
     for (const rawName of uniqueNames) {
       const upper = rawName.toUpperCase();
@@ -1021,15 +1178,15 @@ router.post(
         orConditions.length > 0
           ? await Instrument.find({
               $or: orConditions,
-              exchange: { $in: ['NSE_EQ', 'BSE_EQ'] },
-              segment: 'EQUITY',
+              // Support both old format (exchange: 'NSE_EQ') and new full download (exchange: 'NSE')
+              exchange: { $in: ['NSE_EQ', 'BSE_EQ', 'NSE', 'BSE'] },
             })
           : [];
 
       // Map: screener name (UPPERCASE) → best matching instrument
       // Priority: prefix-on-name > contains-in-name > prefix-on-symbol
       // Tie-break: prefer NSE over BSE, then shortest name (most specific)
-      const exchangeRank = (inst) => (inst.exchange === 'NSE_EQ' ? 0 : 1);
+      const exchangeRank = (inst) => (inst.exchange === 'NSE_EQ' || inst.exchange === 'NSE' ? 0 : 1);
       const instrumentMap = new Map();
       for (const rawName of uniqueNames) {
         const upper = rawName.toUpperCase();
@@ -1197,7 +1354,16 @@ router.post(
         });
       }
 
-      // --- Step 4: Build ranked results ---
+      // --- Step 4: AI Fundamental Scoring ---
+      // Send all valid stock symbols to Perplexity for fundamental analysis
+      const validSymbols = uniqueNames.filter((n) => {
+        const upper = n.toUpperCase();
+        return symbolToInstrument.has(upper) || yahooFallbackMap.has(upper);
+      });
+
+      const aiScoreMap = await getAIFundamentalScores(validSymbols);
+
+      // --- Step 5: Build ranked results with composite scoring ---
       // Helper: compute % change from lastPrice and prevClose
       function calcChange(lastPrice, prevClose) {
         if (lastPrice != null && prevClose != null && prevClose !== 0) {
@@ -1217,58 +1383,84 @@ router.post(
             prevClose: null,
             percentChange: null,
             score: 0,
+            aiScore: 0,
+            aiBreakdown: null,
             error: 'Empty symbol',
           };
         }
 
         const instrument = symbolToInstrument.get(symbol);
         const yahooData = yahooFallbackMap.get(symbol) || null;
+        const aiData = aiScoreMap.get(symbol) || null;
+
+        let lastPrice = null;
+        let prevClose = null;
+        let source = undefined;
 
         // --- Path 1: Upstox matched + has lastPrice ---
         if (instrument) {
           const ltp = tokenToLTP.get(instrument.token) || null;
-
           if (ltp && ltp.lastPrice != null) {
-            const lastPrice = parseFloat(Number(ltp.lastPrice).toFixed(2));
-
-            // Try Upstox cp first; if missing, supplement from Yahoo prevClose
-            let prevClose = null;
+            lastPrice = parseFloat(Number(ltp.lastPrice).toFixed(2));
             if (ltp.cp != null && isFinite(Number(ltp.cp)) && Number(ltp.cp) > 0) {
               prevClose = parseFloat(Number(ltp.cp).toFixed(2));
             } else if (yahooData && yahooData.prevClose != null && Number(yahooData.prevClose) > 0) {
               prevClose = parseFloat(Number(yahooData.prevClose).toFixed(2));
             }
-
-            const percentChange = calcChange(lastPrice, prevClose);
-            const score = percentChange != null ? percentChange : 0;
-            return { symbol, lastPrice, prevClose, percentChange, score };
           }
         }
 
-        // --- Path 2: Full Yahoo Finance fallback (not in Upstox) ---
-        if (yahooData) {
-          const lastPrice = parseFloat(Number(yahooData.lastPrice).toFixed(2));
-          const prevClose =
+        // --- Path 2: Full Yahoo Finance fallback ---
+        if (lastPrice == null && yahooData) {
+          lastPrice = parseFloat(Number(yahooData.lastPrice).toFixed(2));
+          prevClose =
             yahooData.prevClose != null && Number(yahooData.prevClose) > 0
               ? parseFloat(Number(yahooData.prevClose).toFixed(2))
               : null;
-          const percentChange = calcChange(lastPrice, prevClose);
-          const score = percentChange != null ? percentChange : 0;
-          return { symbol, lastPrice, prevClose, percentChange, score, source: 'yahoo' };
+          source = 'yahoo';
         }
 
-        // --- No data from any source ---
+        if (lastPrice == null) {
+          return {
+            symbol,
+            lastPrice: null,
+            prevClose: null,
+            percentChange: null,
+            score: 0,
+            aiScore: 0,
+            aiBreakdown: null,
+            error: 'No price data available',
+          };
+        }
+
+        const percentChange = calcChange(lastPrice, prevClose);
+
+        // Composite score: AI fundamental score (0-20) is the PRIMARY ranking factor
+        // If AI scoring failed/unavailable, fall back to price-based scoring
+        const aiScore = aiData ? aiData.aiScore : 0;
+        const score = aiData ? aiData.aiScore : (percentChange != null ? percentChange : 0);
+
         return {
           symbol,
-          lastPrice: null,
-          prevClose: null,
-          percentChange: null,
-          score: 0,
-          error: 'No price data available',
+          lastPrice,
+          prevClose,
+          percentChange,
+          score,           // Used for sorting — AI score if available, else price change
+          aiScore,         // The fundamental score (0-24, 6 params × 4 each)
+          aiBreakdown: aiData ? {
+            health: aiData.health,
+            growth: aiData.growth,
+            valuation: aiData.valuation,
+            technical: aiData.technical,
+            orderFlow: aiData.orderFlow || 0,
+            institutional: aiData.institutional || 0,
+            reason: aiData.reason,
+          } : null,
+          ...(source ? { source } : {}),
         };
       });
 
-      // Sort by score descending
+      // Sort by score descending (AI fundamental score, or price change if AI unavailable)
       rankedSymbols.sort((a, b) => b.score - a.score);
 
       // Log summary

@@ -182,11 +182,14 @@ class MarketDataService {
     const results = await Promise.all(promises);
     const data = {};
 
-    results.forEach(result => {
-      if (result.error) {
-        data[result.symbol] = { status: 'error', message: result.error };
+    results.forEach((result, idx) => {
+      const sym = symbols[idx];
+      if (!result) {
+        data[sym] = { status: 'error', message: 'No data available' };
+      } else if (result.error) {
+        data[result.symbol || sym] = { status: 'error', message: result.error };
       } else {
-        data[result.symbol] = { status: 'success', data: result };
+        data[result.symbol || sym] = { status: 'success', data: result };
       }
     });
 
