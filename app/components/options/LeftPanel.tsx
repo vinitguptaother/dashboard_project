@@ -1,0 +1,114 @@
+'use client';
+
+import React, { useState } from 'react';
+import StrategyHeader from './StrategyHeader';
+import LegsTable from './LegsTable';
+import StrategyControls from './StrategyControls';
+import ActionBar from './ActionBar';
+import BottomTabs from './BottomTabs';
+import { StrategyLeg, OptionsMockTrade, TradeStats } from './types';
+
+interface Props {
+  // Header
+  underlying: string;
+  setUnderlying: (u: string) => void;
+  spotPrice: number;
+  loading: boolean;
+  onRefresh: () => void;
+  lastRefresh: Date | null;
+
+  // Legs
+  legs: StrategyLeg[];
+  strategyName: string;
+  onToggleSide: (id: string) => void;
+  onUpdateQty: (id: string, qty: number) => void;
+  onUpdateStrike: (id: string, direction: -1 | 1) => void;
+  onRemoveLeg: (id: string) => void;
+  onResetPrices: () => void;
+  selectedExpiry: string;
+
+  // Controls
+  onShift: (direction: -1 | 1) => void;
+  multiplier: number;
+  onSetMultiplier: (m: number) => void;
+  netPremium: number;
+  premiumType: 'CREDIT' | 'DEBIT';
+  totalPremiumValue: number;
+
+  // Actions
+  hasPayoff: boolean;
+  onAddEdit: () => void;
+  onTradeAll: () => void;
+  onAIAnalysis: () => void;
+  aiLoading: boolean;
+
+  // Bottom tabs
+  onApplyPreset: (name: string) => void;
+  trades: OptionsMockTrade[];
+  tradeStats: TradeStats | null;
+  livePnL: Record<string, { totalPnl: number }>;
+  onCloseTrade: (id: string, exitPnl: number) => void;
+  onDeleteTrade: (id: string) => void;
+  chainLoaded: boolean;
+}
+
+export default function LeftPanel(props: Props) {
+  const [bottomTab, setBottomTab] = useState<'ready-made' | 'positions' | 'saved' | 'drafts'>('ready-made');
+
+  return (
+    <div className="flex flex-col h-full">
+      <StrategyHeader
+        underlying={props.underlying}
+        setUnderlying={props.setUnderlying}
+        spotPrice={props.spotPrice}
+        loading={props.loading}
+        onRefresh={props.onRefresh}
+        lastRefresh={props.lastRefresh}
+      />
+
+      <div className="flex-shrink-0">
+        <LegsTable
+          legs={props.legs}
+          strategyName={props.strategyName}
+          onToggleSide={props.onToggleSide}
+          onUpdateQty={props.onUpdateQty}
+          onUpdateStrike={props.onUpdateStrike}
+          onRemove={props.onRemoveLeg}
+          onResetPrices={props.onResetPrices}
+          selectedExpiry={props.selectedExpiry}
+        />
+
+        <StrategyControls
+          onShift={props.onShift}
+          multiplier={props.multiplier}
+          onSetMultiplier={props.onSetMultiplier}
+          netPremium={props.netPremium}
+          premiumType={props.premiumType}
+          totalPremiumValue={props.totalPremiumValue}
+          hasLegs={props.legs.length > 0}
+        />
+
+        <ActionBar
+          hasLegs={props.legs.length > 0}
+          hasPayoff={props.hasPayoff}
+          onAddEdit={props.onAddEdit}
+          onTradeAll={props.onTradeAll}
+          onAIAnalysis={props.onAIAnalysis}
+          aiLoading={props.aiLoading}
+        />
+      </div>
+
+      <BottomTabs
+        activeTab={bottomTab}
+        onTabChange={setBottomTab}
+        onApplyPreset={props.onApplyPreset}
+        trades={props.trades}
+        tradeStats={props.tradeStats}
+        livePnL={props.livePnL}
+        onCloseTrade={props.onCloseTrade}
+        onDeleteTrade={props.onDeleteTrade}
+        chainLoaded={props.chainLoaded}
+      />
+    </div>
+  );
+}
