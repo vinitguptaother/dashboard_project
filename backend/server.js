@@ -192,6 +192,7 @@ app.use('/api/risk', riskManagementRoutes);
 app.use('/api/watchlist', watchlistRoutes);
 app.use('/api/api-usage', require('./routes/apiUsage'));
 app.use('/api/options', require('./routes/options'));
+app.use('/api/market-status', require('./routes/marketStatus'));
 
 // Error handling middleware
 app.use(errorHandler);
@@ -238,13 +239,29 @@ const startServer = (port) => {
 
 startServer(PORT);
 
+// Market hours + holiday awareness
+const { isMarketOpen, getMarketState } = require('./utils/marketHours');
+const holidayService = require('./services/holidayService');
+
 // Scheduled tasks
 function startScheduledTasks() {
   console.log('📅 Starting scheduled tasks...');
-  
-  // Update market data every 2 minutes during market hours
+
+  // ── Holiday list refresh on startup + daily at 6 AM IST (00:30 UTC) ────────
+  holidayService.refreshHolidays().then(r => {
+    const state = getMarketState(new Date(), r.holidays);
+    console.log(`📅 Market state: ${state.state} (${state.istTime} IST, ${r.holidays.length} holidays, source: ${r.source})`);
+  });
+  cron.schedule('30 0 * * *', async () => {
+    try { await holidayService.refreshHolidays(); }
+    catch (e) { console.error('❌ Holiday refresh error:', e.message); }
+  });
+
+  // Update market data every 2 minutes during market hours (guarded)
   cron.schedule('*/2 * * * *', async () => {
     try {
+      const { holidays } = holidayService.getHolidays();
+      if (!isMarketOpen(new Date(), holidays)) return; // skip off-hours & holidays
       console.log('🔄 Updating market data...');
       const symbols = ['NIFTY', 'SENSEX', 'BANKNIFTY', 'RELIANCE', 'TCS', 'HDFC', 'INFY'];
       await marketDataService.getBatchMarketData(symbols);
@@ -387,9 +404,17 @@ function startScheduledTasks() {
   });
 
   // Monitor active trade setups every 2 minutes during market hours (Mon-Fri 9:15-15:30 IST)
+  // Uses shared isMarketOpen() util → also skips NSE holidays, not just weekday/hour.
   // CRITICAL: Uses Instrument DB for proper key mapping + direct Upstox REST API (no demo fallback)
   cron.schedule('*/2 9-15 * * 1-5', async () => {
     try {
+      // Holiday-aware guard (cron cant express holidays natively)
+      const { holidays } = holidayService.getHolidays();
+      if (!isMarketOpen(new Date(), holidays)) {
+        app.locals.monitorHealth = { lastRun: new Date(), status: 'skipped', reason: 'market closed (holiday or outside hours)', activeSetups: 0 };
+        return;
+      }
+
       const TradeSetup = require('./models/TradeSetup');
       const Instrument = require('./models/Instrument');
       const axios = require('axios');

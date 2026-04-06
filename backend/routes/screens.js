@@ -1489,4 +1489,105 @@ router.post(
   }
 );
 
+// ═══════════════════════════════════════════════════════════════════════
+// SCREENER.IN AUTO-FETCH (v2 — query-based, credentials saved once)
+// ═══════════════════════════════════════════════════════════════════════
+const {
+  testAndSaveCredentials,
+  runQueryAndScrape,
+  hasCredentials,
+  clearCredentials,
+  loadCredentials,
+} = require('../services/screenerFetchService');
+
+/**
+ * @route   GET /api/screens/screener-status
+ * @desc    Check if screener.in credentials are saved
+ */
+router.get('/screener-status', (req, res) => {
+  const creds = loadCredentials();
+  res.json({
+    status: 'success',
+    data: {
+      connected: !!creds,
+      email: creds?.email || null,
+    },
+  });
+});
+
+/**
+ * @route   POST /api/screens/screener-login
+ * @desc    Test + save screener.in credentials (one-time setup)
+ */
+router.post('/screener-login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ status: 'error', message: 'Email and password required' });
+    }
+    const result = await testAndSaveCredentials(email, password);
+    res.json({ status: 'success', data: result });
+  } catch (error) {
+    apiLogger.error('Screens API', 'screener-login', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to login to screener.in',
+    });
+  }
+});
+
+/**
+ * @route   POST /api/screens/screener-logout
+ * @desc    Clear saved screener.in credentials
+ */
+router.post('/screener-logout', (req, res) => {
+  clearCredentials();
+  res.json({ status: 'success', message: 'Credentials cleared' });
+});
+
+/**
+ * @route   POST /api/screens/screener-fetch
+ * @desc    Run a screener.in query and return companies
+ * @body    { query, screenName }
+ */
+router.post('/screener-fetch', async (req, res) => {
+  try {
+    const { query, screenName } = req.body;
+    if (!query || !query.trim()) {
+      return res.status(400).json({ status: 'error', message: 'Screen query is required. Add a Screener Query to this screen first.' });
+    }
+    if (!hasCredentials()) {
+      return res.status(401).json({ status: 'error', message: 'No screener.in credentials saved. Click "Connect Screener.in" first.' });
+    }
+
+    const result = await runQueryAndScrape(query.trim());
+
+    // Dedup check
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const existingBatch = await ScreenBatch.findOne({
+      screenName: screenName || 'Auto-fetched',
+      createdAt: { $gte: today },
+    });
+
+    res.json({
+      status: 'success',
+      data: {
+        companies: result.companies,
+        companyCount: result.companies.length,
+        totalResults: result.totalResults,
+        pages: result.pages,
+        alreadyImportedToday: !!existingBatch,
+        existingBatchId: existingBatch?._id || null,
+      },
+    });
+  } catch (error) {
+    apiLogger.error('Screens API', 'screener-fetch', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to fetch from screener.in',
+    });
+  }
+});
+
 module.exports = router;

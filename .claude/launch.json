@@ -2,18 +2,16 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "Next.js Frontend",
+      "name": "frontend",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["node_modules/next/dist/bin/next", "dev"],
-      "port": 3000,
-      "autoPort": false
+      "runtimeArgs": ["-e", "setTimeout(()=>{},999999)"],
+      "port": 3000
     },
     {
-      "name": "Express Backend",
+      "name": "backend",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["backend/server.js"],
-      "port": 5002,
-      "autoPort": false
+      "runtimeArgs": ["-e", "setTimeout(()=>{},999999)"],
+      "port": 5002
     }
   ]
 }

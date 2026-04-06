@@ -3,7 +3,8 @@
 import React, { useMemo } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine,
+  ResponsiveContainer, ReferenceLine, ReferenceArea, Line,
+  ComposedChart,
 } from 'recharts';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -30,6 +31,13 @@ interface PayoffChartProps {
   netTheta?: number;
   netGamma?: number;
   netVega?: number;
+  // Target date curve
+  targetDateData?: PayoffPoint[];
+  daysToExpiry?: number;
+  targetDays?: number;
+  onTargetDaysChange?: (days: number) => void;
+  targetPrice?: number;
+  onTargetPriceChange?: (price: number) => void;
 }
 
 // ─── Chart ─────────────────────────────────────────────────────────────────────
@@ -43,7 +51,25 @@ export default function PayoffChart({
   netTheta,
   netGamma,
   netVega,
+  targetDateData,
+  daysToExpiry,
+  targetDays,
+  onTargetDaysChange,
+  targetPrice,
+  onTargetPriceChange,
 }: PayoffChartProps) {
+  // Merge expiry and target-date data into one dataset
+  const chartData = useMemo(() => {
+    if (!data.length) return [];
+    if (!targetDateData || !targetDateData.length) {
+      return data.map(d => ({ ...d, targetPnl: undefined as number | undefined }));
+    }
+    return data.map((d, i) => ({
+      ...d,
+      targetPnl: targetDateData[i]?.pnl,
+    }));
+  }, [data, targetDateData]);
+
   // Split data into profit (green) and loss (red) using gradientOffset
   const gradientOffset = useMemo(() => {
     if (!data.length) return 0;
@@ -68,12 +94,18 @@ export default function PayoffChart({
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const d = payload[0].payload;
+      if (d.spot == null || d.pnl == null) return null;
       return (
         <div className="bg-gray-800 text-white p-3 rounded-lg shadow-lg border border-gray-700 text-sm">
           <p className="text-gray-400 mb-1">Spot: ₹{d.spot.toLocaleString('en-IN')}</p>
           <p className={`font-bold font-mono-nums ${d.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-            P&L: {d.pnl >= 0 ? '+' : ''}₹{d.pnl.toLocaleString('en-IN')}
+            At Expiry: {d.pnl >= 0 ? '+' : ''}₹{d.pnl.toLocaleString('en-IN')}
           </p>
+          {d.targetPnl != null && (
+            <p className={`font-bold font-mono-nums mt-0.5 ${d.targetPnl >= 0 ? 'text-blue-400' : 'text-orange-400'}`}>
+              On Target Date ({targetDays}d): {d.targetPnl >= 0 ? '+' : ''}₹{d.targetPnl.toLocaleString('en-IN')}
+            </p>
+          )}
         </div>
       );
     }
@@ -88,12 +120,15 @@ export default function PayoffChart({
     );
   }
 
+  const spotMin = data[0]?.spot ?? 0;
+  const spotMax = data[data.length - 1]?.spot ?? 0;
+
   return (
     <div className="space-y-3">
       {/* Chart */}
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
         <ResponsiveContainer width="100%" height={320}>
-          <AreaChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+          <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
             <defs>
               <linearGradient id="payoffGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop offset={0} stopColor="#22c55e" stopOpacity={0.3} />
@@ -114,6 +149,8 @@ export default function PayoffChart({
               tickFormatter={formatXAxis}
               tick={{ fontSize: 11, fill: '#9ca3af' }}
               tickCount={8}
+              type="number"
+              domain={['dataMin', 'dataMax']}
             />
             <YAxis
               tickFormatter={formatYAxis}
@@ -121,6 +158,24 @@ export default function PayoffChart({
               width={70}
             />
             <Tooltip content={<CustomTooltip />} />
+
+            {/* SD band shading (behind everything) */}
+            {sdMoves && sdMoves.sdValue > 0 && (
+              <>
+                <ReferenceArea
+                  x1={sdMoves.sd2Lower}
+                  x2={sdMoves.sd2Upper}
+                  fill="#6d28d9"
+                  fillOpacity={0.03}
+                />
+                <ReferenceArea
+                  x1={sdMoves.sd1Lower}
+                  x2={sdMoves.sd1Upper}
+                  fill="#8b5cf6"
+                  fillOpacity={0.06}
+                />
+              </>
+            )}
 
             {/* Zero line */}
             <ReferenceLine y={0} stroke="#6b7280" strokeWidth={1} />
@@ -146,7 +201,7 @@ export default function PayoffChart({
               />
             ))}
 
-            {/* SD bands */}
+            {/* SD band lines */}
             {sdMoves && sdMoves.sdValue > 0 && (
               <>
                 <ReferenceLine x={sdMoves.sd1Upper} stroke="#8b5cf6" strokeDasharray="4 4" strokeWidth={1} label={{ value: '+1SD', position: 'top', fill: '#8b5cf6', fontSize: 9 }} />
@@ -156,7 +211,7 @@ export default function PayoffChart({
               </>
             )}
 
-            {/* Payoff curve */}
+            {/* Payoff curve at expiry */}
             <Area
               type="monotone"
               dataKey="pnl"
@@ -164,9 +219,65 @@ export default function PayoffChart({
               fill="url(#payoffGradient)"
               strokeWidth={2}
             />
-          </AreaChart>
+
+            {/* Target date curve (blue dashed line) */}
+            {targetDateData && targetDateData.length > 0 && (
+              <Line
+                type="monotone"
+                dataKey="targetPnl"
+                stroke="#3b82f6"
+                strokeWidth={1.5}
+                strokeDasharray="6 3"
+                dot={false}
+                connectNulls
+              />
+            )}
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
+
+      {/* Sliders */}
+      {(onTargetPriceChange || onTargetDaysChange) && (
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+          {/* Target Price Slider */}
+          {onTargetPriceChange && (
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-gray-500 dark:text-gray-400 w-24 shrink-0">Target Price</span>
+              <input
+                type="range"
+                min={spotMin}
+                max={spotMax}
+                step={(spotMax - spotMin) / 200}
+                value={targetPrice ?? spotPrice}
+                onChange={e => onTargetPriceChange(parseFloat(e.target.value))}
+                className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+              <span className="text-xs font-mono-nums font-semibold text-gray-900 dark:text-gray-100 w-20 text-right">
+                ₹{(targetPrice ?? spotPrice).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+              </span>
+            </div>
+          )}
+
+          {/* Days to Expiry Slider */}
+          {onTargetDaysChange && daysToExpiry && daysToExpiry > 0 && (
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-gray-500 dark:text-gray-400 w-24 shrink-0">Days to Expiry</span>
+              <input
+                type="range"
+                min={0}
+                max={daysToExpiry}
+                step={1}
+                value={targetDays ?? Math.floor(daysToExpiry / 2)}
+                onChange={e => onTargetDaysChange(parseInt(e.target.value))}
+                className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+              <span className="text-xs font-mono-nums font-semibold text-gray-900 dark:text-gray-100 w-20 text-right">
+                {targetDays ?? Math.floor(daysToExpiry / 2)}d remaining
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Greeks Summary Bar */}
       {(netDelta !== undefined || netTheta !== undefined) && (

@@ -12,12 +12,13 @@ interface Props {
   onUpdateStrike: (id: string, direction: -1 | 1) => void;
   onRemove: (id: string) => void;
   onResetPrices: () => void;
+  onClearAll?: () => void;
   selectedExpiry: string;
 }
 
 export default function LegsTable({
   legs, strategyName, onToggleSide, onUpdateQty,
-  onUpdateStrike, onRemove, onResetPrices, selectedExpiry,
+  onUpdateStrike, onRemove, onResetPrices, onClearAll, selectedExpiry,
 }: Props) {
   if (legs.length === 0) {
     return (
@@ -44,12 +45,22 @@ export default function LegsTable({
             {strategyName}
           </span>
         </div>
-        <button
-          onClick={onResetPrices}
-          className="text-xs text-blue-500 hover:text-blue-600 font-medium"
-        >
-          Reset Prices
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onResetPrices}
+            className="text-xs text-blue-500 hover:text-blue-600 font-medium"
+          >
+            Reset Prices
+          </button>
+          {onClearAll && (
+            <button
+              onClick={onClearAll}
+              className="text-xs text-red-500 hover:text-red-600 font-medium"
+            >
+              Clear All
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Column headers */}
@@ -94,18 +105,18 @@ export default function LegsTable({
           <div className="flex items-center justify-center gap-0.5">
             <button
               onClick={() => onUpdateStrike(leg.id, -1)}
-              className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400"
+              className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400"
             >
-              <Minus className="w-3 h-3" />
+              <Minus className="w-3.5 h-3.5" />
             </button>
             <span className="font-mono-nums text-sm font-semibold text-gray-900 dark:text-gray-100 min-w-[50px] text-center">
               {leg.strike.toLocaleString('en-IN')}
             </span>
             <button
               onClick={() => onUpdateStrike(leg.id, 1)}
-              className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400"
+              className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400"
             >
-              <Plus className="w-3 h-3" />
+              <Plus className="w-3.5 h-3.5" />
             </button>
           </div>
 
@@ -120,18 +131,18 @@ export default function LegsTable({
           <div className="flex items-center justify-center gap-0.5">
             <button
               onClick={() => onUpdateQty(leg.id, leg.qty - 1)}
-              className="w-4 h-4 flex items-center justify-center rounded text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
+              className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
             >
-              <Minus className="w-2.5 h-2.5" />
+              <Minus className="w-3 h-3" />
             </button>
             <span className="font-mono-nums text-xs font-medium text-gray-900 dark:text-gray-100 min-w-[16px] text-center">
               {leg.qty}
             </span>
             <button
               onClick={() => onUpdateQty(leg.id, leg.qty + 1)}
-              className="w-4 h-4 flex items-center justify-center rounded text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
+              className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
             >
-              <Plus className="w-2.5 h-2.5" />
+              <Plus className="w-3 h-3" />
             </button>
           </div>
 
@@ -143,7 +154,7 @@ export default function LegsTable({
           {/* Delete */}
           <button
             onClick={() => onRemove(leg.id)}
-            className="w-5 h-5 flex items-center justify-center rounded text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+            className="w-6 h-6 flex items-center justify-center rounded text-red-400 dark:text-red-500 opacity-70 hover:opacity-100 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
           >
             <X className="w-3.5 h-3.5" />
           </button>

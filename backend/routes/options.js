@@ -111,6 +111,60 @@ router.post('/payoff', (req, res) => {
   }
 });
 
+// POST /api/options/payoff-at-date
+// Calculate projected P&L curve at a target date using Black-Scholes pricing
+router.post('/payoff-at-date', (req, res) => {
+  try {
+    const { legs, spotPrice, iv, daysToExpiry, targetDaysRemaining } = req.body;
+
+    if (!legs || !legs.length || !spotPrice) {
+      return res.status(400).json({ status: 'error', message: 'legs[], spotPrice required' });
+    }
+
+    const avgIV = iv || 0.15;
+    const dte = daysToExpiry || 1;
+    const targetDays = targetDaysRemaining != null ? targetDaysRemaining : Math.floor(dte / 2);
+    const sdMoves = optionsMath.calculateSDMoves(spotPrice, avgIV, dte);
+
+    const range = sdMoves.sdValue * 2.5 || spotPrice * 0.1;
+    const spotMin = spotPrice - range;
+    const spotMax = spotPrice + range;
+
+    const targetDatePayoffData = optionsMath.calculatePayoffAtDate(
+      legs, spotMin, spotMax, 200, targetDays, 0.07
+    );
+
+    res.json({
+      status: 'success',
+      data: { targetDatePayoffData, targetDaysRemaining: targetDays },
+    });
+  } catch (error) {
+    console.error('Options payoff-at-date error:', error.message);
+    res.status(500).json({ status: 'error', message: error.message || 'Target date calculation failed' });
+  }
+});
+
+// POST /api/options/payoff-grid
+// Calculate 2D P&L grid (spot × date) for the P&L table
+router.post('/payoff-grid', (req, res) => {
+  try {
+    const { legs, spotPrice, daysToExpiry, spotSteps, dateSteps } = req.body;
+
+    if (!legs || !legs.length || !spotPrice) {
+      return res.status(400).json({ status: 'error', message: 'legs[], spotPrice required' });
+    }
+
+    const grid = optionsMath.calculatePayoffGrid(
+      legs, spotPrice, daysToExpiry || 1, spotSteps || 15, dateSteps || null, 0.07
+    );
+
+    res.json({ status: 'success', data: grid });
+  } catch (error) {
+    console.error('Options payoff-grid error:', error.message);
+    res.status(500).json({ status: 'error', message: error.message || 'Grid calculation failed' });
+  }
+});
+
 // ─── Phase 3: Margin Calculator ────────────────────────────────────────────────
 
 // POST /api/options/margin

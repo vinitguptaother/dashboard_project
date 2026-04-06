@@ -3,10 +3,12 @@
 import React, { useState } from 'react';
 import SummaryBar from './SummaryBar';
 import GreeksPanel from './GreeksPanel';
+import InsightsPanel from './InsightsPanel';
+import PnLTable from './PnLTable';
 import PayoffChart from '../PayoffChart';
-import { PayoffResult, MarginData, OptionChainData, StrategyLeg } from './types';
+import { PayoffResult, MarginData, OptionChainData, StrategyLeg, PayoffPoint } from './types';
 
-type RightTab = 'payoff' | 'greeks';
+type RightTab = 'payoff' | 'pnl' | 'greeks';
 
 interface Props {
   payoff: PayoffResult | null;
@@ -16,13 +18,24 @@ interface Props {
   legs: StrategyLeg[];
   spotPrice: number;
   aiAnalysis: string;
+  // Target date props
+  targetDateData?: PayoffPoint[];
+  daysToExpiry?: number;
+  targetDays?: number;
+  onTargetDaysChange?: (days: number) => void;
+  targetPrice?: number;
+  onTargetPriceChange?: (price: number) => void;
 }
 
-export default function RightPanel({ payoff, payoffLoading, margin, chain, legs, spotPrice, aiAnalysis }: Props) {
+export default function RightPanel({
+  payoff, payoffLoading, margin, chain, legs, spotPrice, aiAnalysis,
+  targetDateData, daysToExpiry, targetDays, onTargetDaysChange, targetPrice, onTargetPriceChange,
+}: Props) {
   const [activeTab, setActiveTab] = useState<RightTab>('payoff');
 
   const tabs: { id: RightTab; label: string }[] = [
     { id: 'payoff', label: 'Payoff Graph' },
+    { id: 'pnl', label: 'P&L Table' },
     { id: 'greeks', label: 'Greeks' },
   ];
 
@@ -30,6 +43,16 @@ export default function RightPanel({ payoff, payoffLoading, margin, chain, legs,
     <div className="flex flex-col h-full">
       {/* Summary */}
       <SummaryBar payoff={payoff} margin={margin} />
+
+      {/* Insights */}
+      {payoff && legs.length > 0 && (
+        <InsightsPanel
+          payoff={payoff}
+          margin={margin}
+          legs={legs}
+          daysToExpiry={daysToExpiry || 0}
+        />
+      )}
 
       {/* Tab strip */}
       <div className="flex border-b border-gray-200 dark:border-gray-700 px-4">
@@ -67,6 +90,12 @@ export default function RightPanel({ payoff, payoffLoading, margin, chain, legs,
                   netTheta={payoff.greeks.netTheta}
                   netGamma={payoff.greeks.netGamma}
                   netVega={payoff.greeks.netVega}
+                  targetDateData={targetDateData}
+                  daysToExpiry={daysToExpiry}
+                  targetDays={targetDays}
+                  onTargetDaysChange={onTargetDaysChange}
+                  targetPrice={targetPrice}
+                  onTargetPriceChange={onTargetPriceChange}
                 />
 
                 {/* AI Analysis */}
@@ -87,6 +116,14 @@ export default function RightPanel({ payoff, payoffLoading, margin, chain, legs,
               </div>
             )}
           </div>
+        )}
+
+        {activeTab === 'pnl' && (
+          <PnLTable
+            legs={legs}
+            spotPrice={spotPrice}
+            daysToExpiry={daysToExpiry || 0}
+          />
         )}
 
         {activeTab === 'greeks' && (

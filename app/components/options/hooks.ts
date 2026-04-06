@@ -58,18 +58,23 @@ export function useOptionsData(underlying: string) {
   // Fetch chain when expiry changes
   useEffect(() => { fetchChain(); }, [fetchChain]);
 
-  // Auto-refresh every 30s during market hours
+  // Auto-refresh every 30s during market hours (IST-aware, holiday-aware via shared util)
   useEffect(() => {
     if (!selectedExpiry) return;
-    const interval = setInterval(() => {
-      const now = new Date();
-      const day = now.getDay();
-      const t = now.getHours() * 60 + now.getMinutes();
-      if (day >= 1 && day <= 5 && t >= 555 && t <= 930) {
-        fetchChain();
-      }
-    }, 30000);
-    return () => clearInterval(interval);
+    let cancelled = false;
+    let interval: ReturnType<typeof setInterval> | null = null;
+    (async () => {
+      const [{ getMarketState }, holidaysRes] = await Promise.all([
+        import('../../lib/marketHours'),
+        fetch(`${BACKEND_URL}/api/market-status/holidays`).then(r => r.json()).catch(() => null),
+      ]);
+      const holidays = holidaysRes?.data?.holidays || [];
+      if (cancelled) return;
+      interval = setInterval(() => {
+        if (getMarketState(new Date(), holidays).isOpen) fetchChain();
+      }, 30000);
+    })();
+    return () => { cancelled = true; if (interval) clearInterval(interval); };
   }, [fetchChain, selectedExpiry]);
 
   // Visible strikes around ATM

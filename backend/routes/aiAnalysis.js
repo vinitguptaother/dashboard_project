@@ -7,7 +7,20 @@ const express = require('express');
 const axios = require('axios');
 
 const trackAPI = require('../utils/trackAPI');
+const { getMarketState, marketStateForPrompt } = require('../utils/marketHours');
+const holidayService = require('../services/holidayService');
 const router = express.Router();
+
+// Build market-state context line for AI prompts (dynamic — reads state at call time).
+function buildMarketContext() {
+  try {
+    const { holidays } = holidayService.getHolidays();
+    const state = getMarketState(new Date(), holidays);
+    return marketStateForPrompt(state);
+  } catch {
+    return 'MARKET STATE: unknown.';
+  }
+}
 
 // ─────────────────────────────────────────────
 // In-memory cache — avoids re-hitting Perplexity for the same data
@@ -38,13 +51,19 @@ function checkAPIKey() {
   return key;
 }
 
-// System prompt shared across all AI analysis calls
-const SYSTEM_PROMPT =
-  'You are an expert Indian stock market analyst. You specialize in NSE/BSE equities, ' +
-  'NIFTY 50, SENSEX, technical analysis, fundamental analysis, and swing trading strategies. ' +
-  'Today\'s date is ' + new Date().toISOString().split('T')[0] + '. ' +
-  'IMPORTANT: Always respond with ONLY valid JSON — no markdown, no code blocks, no explanation outside the JSON. ' +
-  'Use realistic, current market data. All prices should be in INR (₹).';
+// System prompt shared across all AI analysis calls.
+// Rebuilt per-call so today's date AND current market state stay fresh.
+function buildSystemPrompt() {
+  return (
+    'You are an expert Indian stock market analyst. You specialize in NSE/BSE equities, ' +
+    'NIFTY 50, SENSEX, technical analysis, fundamental analysis, and swing trading strategies. ' +
+    "Today's date is " + new Date().toISOString().split('T')[0] + '. ' +
+    buildMarketContext() + ' ' +
+    'IMPORTANT: Always respond with ONLY valid JSON — no markdown, no code blocks, no explanation outside the JSON. ' +
+    'Use realistic, current market data. All prices should be in INR (₹). ' +
+    'If the market is currently CLOSED, phrase analysis in past tense for the last session and avoid claims like "the stock is currently trading at X".'
+  );
+}
 
 // Try sonar-pro first, fall back to the smaller model if auth fails
 const MODELS = ['sonar-pro', 'llama-3.1-sonar-small-128k-online'];
@@ -59,7 +78,7 @@ async function callPerplexity(apiKey, userPrompt) {
         {
           model,
           messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'system', content: buildSystemPrompt() },
             { role: 'user', content: userPrompt },
           ],
           max_tokens: 2000,
@@ -466,7 +485,7 @@ RULES:
           {
             model,
             messages: [
-              { role: 'system', content: 'You are a senior Goldman Sachs equity research analyst covering Indian equities (NSE/BSE). Today is ' + today + '. IMPORTANT: Always respond with ONLY valid JSON — no markdown, no code blocks, no explanation outside the JSON.' },
+              { role: 'system', content: 'You are a senior Goldman Sachs equity research analyst covering Indian equities (NSE/BSE). Today is ' + today + '. ' + buildMarketContext() + ' IMPORTANT: Always respond with ONLY valid JSON — no markdown, no code blocks, no explanation outside the JSON. If the market is closed, describe prices as "last close" not "currently trading".' },
               { role: 'user', content: fundamentalPrompt },
             ],
             max_tokens: 4000,
@@ -568,7 +587,7 @@ RULES:
           {
             model,
             messages: [
-              { role: 'system', content: 'You are a senior technical analyst at a top Indian brokerage. Today is ' + today + '. IMPORTANT: Always respond with ONLY valid JSON — no markdown, no code blocks.' },
+              { role: 'system', content: 'You are a senior technical analyst at a top Indian brokerage. Today is ' + today + '. ' + buildMarketContext() + ' IMPORTANT: Always respond with ONLY valid JSON — no markdown, no code blocks. If the market is closed, describe prices as "last close" not "currently trading".' },
               { role: 'user', content: technicalPrompt },
             ],
             max_tokens: 2000,

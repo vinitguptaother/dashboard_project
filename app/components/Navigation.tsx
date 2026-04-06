@@ -27,6 +27,7 @@ import {
   X
 } from 'lucide-react';
 import RealTimeNotification from './RealTimeNotification';
+import MarketStatusBadge from './MarketStatusBadge';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5002';
 
@@ -211,6 +212,9 @@ const Navigation = ({ activeTab, setActiveTab }: NavigationProps) => {
           <button onClick={toggleTheme} className="theme-toggle" title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}>
             {isDark ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
           </button>
+
+          {/* NSE Market Status (open/closed/holiday) */}
+          <MarketStatusBadge />
 
           {/* LIVE / DEMO Badge */}
           <UpstoxStatusBadge />

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Layers, Upload, FileText, TrendingUp, X, Sparkles, Award, Plus, Pencil, Trash2, Clock, RotateCcw, BarChart3, Target, ShieldAlert, ArrowUpRight, ArrowDownRight, Zap } from 'lucide-react';
+import { Layers, Upload, FileText, TrendingUp, X, Sparkles, Award, Plus, Pencil, Trash2, Clock, RotateCcw, BarChart3, Target, ShieldAlert, ArrowUpRight, ArrowDownRight, Zap, Download, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
 import { ScreenDefinition, ScreenBatch, ScreenId, ScreenSymbol } from '../types/screens';
 import * as XLSX from 'xlsx';
 
@@ -101,7 +101,31 @@ const ScreensTab = () => {
   const [recommendations, setRecommendations] = useState<any>(null);
   const [loadingRecs, setLoadingRecs] = useState(false);
 
-  useEffect(() => { fetchScreens(); fetchPerformance(); fetchRecommendations(); }, []);
+  // ── Screener.in Auto-Fetch state (v2) ─────────────────────────────────────
+  const [screenerConnected, setScreenerConnected] = useState(false);
+  const [screenerEmail, setScreenerEmail] = useState('');
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [fetchLoading, setFetchLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [showFetchModal, setShowFetchModal] = useState(false);
+  const [fetchedCompanies, setFetchedCompanies] = useState<{name: string, symbol: string}[]>([]);
+  const [fetchedScreenName, setFetchedScreenName] = useState('');
+  const [alreadyImportedToday, setAlreadyImportedToday] = useState(false);
+
+  useEffect(() => { fetchScreens(); fetchPerformance(); fetchRecommendations(); checkScreenerStatus(); }, []);
+
+  const checkScreenerStatus = async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/screens/screener-status`);
+      const json = await res.json();
+      if (json.status === 'success') {
+        setScreenerConnected(json.data.connected);
+        setScreenerEmail(json.data.email || '');
+      }
+    } catch { /* backend down — ignore */ }
+  };
 
   useEffect(() => {
     try {
@@ -363,6 +387,98 @@ const ScreensTab = () => {
     setShowUploadModal(false);
     setCsvFileName('');
     setCsvParsedStocks([]);
+  };
+
+  // ── Screener.in Auto-Fetch handlers (v2) ─────────────────────────────────
+  const handleScreenerLogin = async () => {
+    if (!loginEmail || !loginPassword) { setFetchError('Enter email and password'); return; }
+    setFetchLoading(true);
+    setFetchError(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/screens/screener-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+      });
+      const json = await res.json();
+      if (json.status === 'success') {
+        setScreenerConnected(true);
+        setScreenerEmail(loginEmail);
+        setShowLoginModal(false);
+        setLoginPassword('');
+      } else {
+        setFetchError(json.message || 'Login failed');
+      }
+    } catch (e: any) {
+      setFetchError(e.message || 'Could not reach backend');
+    } finally {
+      setFetchLoading(false);
+    }
+  };
+
+  const handleScreenerLogout = async () => {
+    try {
+      await fetch(`${BACKEND_URL}/api/screens/screener-logout`, { method: 'POST' });
+    } catch {}
+    setScreenerConnected(false);
+    setScreenerEmail('');
+  };
+
+  const handleFetchFromScreener = async () => {
+    const selectedScreen = screens.find(s => s.id === selectedScreenId);
+    if (!selectedScreen) return;
+    const query = editableQueryText || selectedScreen.queryText;
+    if (!query || !query.trim()) {
+      alert('This screen has no Screener Query set. Add a query first (e.g. "Market Cap > 1000 AND PE Ratio < 20").');
+      return;
+    }
+    setFetchLoading(true);
+    setFetchError(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/screens/screener-fetch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: query.trim(), screenName: selectedScreen.name }),
+      });
+      const json = await res.json();
+      if (json.status === 'success' && json.data?.companies) {
+        setFetchedCompanies(json.data.companies);
+        setFetchedScreenName(selectedScreen.name);
+        setAlreadyImportedToday(json.data.alreadyImportedToday || false);
+        setShowFetchModal(true);
+      } else {
+        setFetchError(json.message || 'Failed to fetch');
+        // If 401 (creds expired), reset connected status
+        if (res.status === 401) { setScreenerConnected(false); setScreenerEmail(''); }
+      }
+    } catch (e: any) {
+      setFetchError(e.message || 'Network error');
+    } finally {
+      setFetchLoading(false);
+    }
+  };
+
+  const handleImportFetched = () => {
+    if (fetchedCompanies.length === 0) return;
+    const stocks = fetchedCompanies.map(c => ({ symbol: c.symbol, name: c.name }));
+    localStorage.setItem('screenBatch', JSON.stringify(stocks));
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    const importInfo = { date: dateStr, count: stocks.length };
+    localStorage.setItem('screenBatchImportInfo', JSON.stringify(importInfo));
+    setLocalBatchStocks(stocks);
+    setLastImportInfo(importInfo);
+    const screenSymbols: ScreenSymbol[] = stocks.map(s => ({ symbol: s.symbol, name: s.name, sector: undefined, marketCap: undefined }));
+    const newBatch: ScreenBatch = { id: Date.now().toString(), screenId: selectedScreenId || '', importedAt: now.toISOString(), symbols: screenSymbols };
+    setBatches(prev => [...prev, newBatch]);
+    setShowFetchModal(false);
+    setFetchedCompanies([]);
+  };
+
+  const handleCloseFetchModal = () => {
+    setShowFetchModal(false);
+    setFetchError(null);
+    setFetchedCompanies([]);
   };
 
   const formatDate = (isoString: string) => {
@@ -663,11 +779,25 @@ const ScreensTab = () => {
                   Import Latest List
                 </h3>
                 <div className="space-y-4">
-                  <div className="flex gap-3">
+                  <div className="flex gap-3 flex-wrap">
                     <button onClick={handleOpenUploadModal} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center space-x-2">
                       <Upload className="h-4 w-4" />
-                      <span>Upload stock list</span>
+                      <span>Upload CSV</span>
                     </button>
+                    {screenerConnected ? (
+                      <button onClick={handleFetchFromScreener} disabled={fetchLoading || !editableQueryText?.trim()}
+                        title={!editableQueryText?.trim() ? 'Add a Screener Query to this screen first' : `Run query on screener.in (${screenerEmail})`}
+                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded-lg transition-colors flex items-center space-x-2">
+                        {fetchLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                        <span>{fetchLoading ? 'Fetching...' : 'Fetch from Screener.in'}</span>
+                      </button>
+                    ) : (
+                      <button onClick={() => setShowLoginModal(true)}
+                        className="px-4 py-2 border-2 border-purple-500 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors flex items-center space-x-2">
+                        <Download className="h-4 w-4" />
+                        <span>Connect Screener.in</span>
+                      </button>
+                    )}
                     {localBatchStocks.length > 0 && (
                       <>
                         <button onClick={handleRankBatch} disabled={isRanking}
@@ -683,9 +813,20 @@ const ScreensTab = () => {
                       </>
                     )}
                   </div>
-                  <div className="text-sm text-gray-600">
-                    <span className="font-medium">Last import:</span> {lastImportInfo ? `${lastImportInfo.date} · ${lastImportInfo.count} companies` : 'none'}
+                  <div className="flex items-center justify-between text-sm text-gray-600">
+                    <div>
+                      <span className="font-medium">Last import:</span> {lastImportInfo ? `${lastImportInfo.date} · ${lastImportInfo.count} companies` : 'none'}
+                    </div>
+                    {screenerConnected && (
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="text-green-600 flex items-center gap-1"><CheckCircle className="h-3 w-3" /> screener.in ({screenerEmail})</span>
+                        <button onClick={handleScreenerLogout} className="text-gray-400 hover:text-red-500" title="Disconnect screener.in">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )}
                   </div>
+                  {fetchError && (<div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg flex items-center gap-2"><AlertTriangle className="h-4 w-4 flex-shrink-0" /> {fetchError}</div>)}
                   {rankingError && (<div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">Error: {rankingError}</div>)}
                   {saveWarning && (<div className="text-sm text-amber-600 bg-amber-50 p-3 rounded-lg">{saveWarning}</div>)}
                 </div>
@@ -1145,10 +1286,101 @@ const ScreensTab = () => {
           </div>
         </div>
       )}
+      {/* ── Screener.in Login Modal (one-time setup) ──────────────────────── */}
+      {showLoginModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
+            <div className="p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <Download className="h-5 w-5 text-purple-600" />
+                  Connect Screener.in
+                </h2>
+                <button onClick={() => { setShowLoginModal(false); setFetchError(null); }} className="text-gray-400 hover:text-gray-600"><X className="h-5 w-5" /></button>
+              </div>
+              <p className="text-sm text-gray-600">Enter your screener.in email + password. Saved locally on your machine — only sent to screener.in for login.</p>
+              {fetchError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 flex-shrink-0" /> {fetchError}
+                </div>
+              )}
+              <input type="email" value={loginEmail} onChange={e => setLoginEmail(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="Email" />
+              <input type="password" value={loginPassword} onChange={e => setLoginPassword(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleScreenerLogin()}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="Password" />
+              <div className="flex justify-end gap-3">
+                <button onClick={() => { setShowLoginModal(false); setFetchError(null); }} className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm">Cancel</button>
+                <button onClick={handleScreenerLogin} disabled={fetchLoading}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded-lg text-sm flex items-center gap-2">
+                  {fetchLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                  {fetchLoading ? 'Connecting...' : 'Save & Connect'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Screener.in Fetched Results Modal ─────────────────────────────── */}
+      {showFetchModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5 text-green-600" />
+                  <h2 className="text-lg font-bold text-gray-900">
+                    Fetched {fetchedCompanies.length} companies
+                  </h2>
+                </div>
+                <button onClick={handleCloseFetchModal} className="text-gray-400 hover:text-gray-600"><X className="h-5 w-5" /></button>
+              </div>
+              <p className="text-sm text-gray-600">From screen: <strong>{fetchedScreenName}</strong></p>
+
+              {alreadyImportedToday && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700 flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                  Already imported today. Importing again creates a new batch.
+                </div>
+              )}
+
+              <div className="max-h-[350px] overflow-y-auto border border-gray-200 rounded-lg">
+                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Company</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Symbol</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {fetchedCompanies.map((c, i) => (
+                      <tr key={i} className="hover:bg-gray-50">
+                        <td className="px-3 py-1.5 text-gray-400">{i + 1}</td>
+                        <td className="px-3 py-1.5 text-gray-900">{c.name}</td>
+                        <td className="px-3 py-1.5 text-gray-600 font-mono text-xs">{c.symbol}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <button onClick={handleCloseFetchModal} className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm">Cancel</button>
+                <button onClick={handleImportFetched}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4" />
+                  Import {fetchedCompanies.length} companies
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export default ScreensTab;
 
-                      

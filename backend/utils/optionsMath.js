@@ -4,6 +4,150 @@
  * Used by the strategy builder and payoff chart.
  */
 
+// ─── Standard Normal CDF ──────────────────────────────────────────────────────
+
+/**
+ * Standard normal CDF approximation (Abramowitz and Stegun).
+ * @param {number} x
+ * @returns {number} — P(Z <= x)
+ */
+function normCDF(x) {
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
+  const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+  const sign = x < 0 ? -1 : 1;
+  const ax = Math.abs(x) / Math.SQRT2;
+  const t = 1.0 / (1.0 + p * ax);
+  const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-ax * ax);
+  return 0.5 * (1.0 + sign * y);
+}
+
+// ─── Black-Scholes Pricing ────────────────────────────────────────────────────
+
+/**
+ * Black-Scholes European option price.
+ * @param {number} S — spot price
+ * @param {number} K — strike price
+ * @param {number} T — time to expiry in years (e.g. 7/365)
+ * @param {number} r — risk-free rate (default 0.07 for India)
+ * @param {number} sigma — implied volatility (decimal, e.g. 0.15)
+ * @param {string} type — 'CE' or 'PE'
+ * @returns {number} — theoretical option price
+ */
+function blackScholesPrice(S, K, T, r, sigma, type) {
+  if (T <= 0 || sigma <= 0) {
+    // At or past expiry — return intrinsic value
+    return type === 'CE' ? Math.max(0, S - K) : Math.max(0, K - S);
+  }
+
+  const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T));
+  const d2 = d1 - sigma * Math.sqrt(T);
+
+  if (type === 'CE') {
+    return S * normCDF(d1) - K * Math.exp(-r * T) * normCDF(d2);
+  } else {
+    return K * Math.exp(-r * T) * normCDF(-d2) - S * normCDF(-d1);
+  }
+}
+
+// ─── Payoff at Target Date (using Black-Scholes) ─────────────────────────────
+
+/**
+ * Calculate projected P&L at a future date (before expiry) using BS pricing.
+ * @param {Array} legs — [{ type, strike, premium, qty, side, lotSize, iv }]
+ * @param {number} spotMin
+ * @param {number} spotMax
+ * @param {number} steps
+ * @param {number} daysRemaining — calendar days remaining at target date
+ * @param {number} riskFreeRate — default 0.07
+ * @returns {Array} — [{ spot, pnl }]
+ */
+function calculatePayoffAtDate(legs, spotMin, spotMax, steps = 200, daysRemaining = 0, riskFreeRate = 0.07) {
+  const result = [];
+  const stepSize = (spotMax - spotMin) / steps;
+  const T = Math.max(daysRemaining, 0) / 365;
+
+  for (let i = 0; i <= steps; i++) {
+    const spot = spotMin + stepSize * i;
+    let totalPnl = 0;
+
+    for (const leg of legs) {
+      const lots = leg.qty || 1;
+      const lotSize = leg.lotSize || 1;
+      const multiplier = leg.side === 'SELL' ? -1 : 1;
+      const iv = leg.iv || 0.15; // fallback IV
+
+      const theoreticalPrice = blackScholesPrice(spot, leg.strike, T, riskFreeRate, iv, leg.type);
+      const pnlPerUnit = (theoreticalPrice - leg.premium) * multiplier;
+      totalPnl += pnlPerUnit * lots * lotSize;
+    }
+
+    result.push({ spot: parseFloat(spot.toFixed(2)), pnl: parseFloat(totalPnl.toFixed(2)) });
+  }
+
+  return result;
+}
+
+// ─── Payoff Grid (for P&L Table) ──────────────────────────────────────────────
+
+/**
+ * Calculate a 2D P&L grid: spot prices × days remaining.
+ * @param {Array} legs
+ * @param {number} spotPrice — current spot
+ * @param {number} daysToExpiry — total DTE
+ * @param {number} spotSteps — number of spot price rows (default 15)
+ * @param {Array} dateSteps — array of days remaining values (e.g. [0, 1, 3, 7, 14, ...])
+ * @param {number} riskFreeRate
+ * @returns {{ spotPrices: number[], daysRemaining: number[], grid: number[][] }}
+ */
+function calculatePayoffGrid(legs, spotPrice, daysToExpiry, spotSteps = 15, dateSteps = null, riskFreeRate = 0.07) {
+  // Calculate average IV from legs
+  const avgIV = legs.reduce((sum, l) => sum + (l.iv || 0.15), 0) / (legs.length || 1);
+  const sd = spotPrice * avgIV * Math.sqrt(daysToExpiry / 365);
+
+  // Spot range: -2SD to +2SD
+  const spotMin = spotPrice - 2 * sd;
+  const spotMax = spotPrice + 2 * sd;
+  const spotStep = (spotMax - spotMin) / (spotSteps - 1);
+  const spotPrices = [];
+  for (let i = 0; i < spotSteps; i++) {
+    spotPrices.push(parseFloat((spotMin + spotStep * i).toFixed(2)));
+  }
+
+  // Date steps: default spread from DTE to 0
+  if (!dateSteps) {
+    const dates = [];
+    if (daysToExpiry > 14) dates.push(daysToExpiry);
+    if (daysToExpiry > 7) dates.push(Math.min(14, daysToExpiry - 1));
+    if (daysToExpiry > 3) dates.push(7);
+    dates.push(3, 1, 0);
+    dateSteps = [...new Set(dates)].sort((a, b) => b - a);
+  }
+
+  const grid = [];
+  for (const spot of spotPrices) {
+    const row = [];
+    for (const days of dateSteps) {
+      const T = Math.max(days, 0) / 365;
+      let totalPnl = 0;
+
+      for (const leg of legs) {
+        const lots = leg.qty || 1;
+        const lotSize = leg.lotSize || 1;
+        const multiplier = leg.side === 'SELL' ? -1 : 1;
+        const iv = leg.iv || 0.15;
+
+        const price = blackScholesPrice(spot, leg.strike, T, riskFreeRate, iv, leg.type);
+        totalPnl += (price - leg.premium) * multiplier * lots * lotSize;
+      }
+
+      row.push(parseFloat(totalPnl.toFixed(2)));
+    }
+    grid.push(row);
+  }
+
+  return { spotPrices, daysRemaining: dateSteps, grid };
+}
+
 // ─── Payoff Calculation ────────────────────────────────────────────────────────
 
 /**
@@ -174,17 +318,6 @@ function calculatePOP(breakevens, spot, iv, daysToExpiry, direction = 'CREDIT') 
 
   const sigma = iv * Math.sqrt(daysToExpiry / 365);
 
-  // Standard normal CDF approximation (Abramowitz and Stegun)
-  function normCDF(x) {
-    const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
-    const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
-    const sign = x < 0 ? -1 : 1;
-    x = Math.abs(x) / Math.SQRT2;
-    const t = 1.0 / (1.0 + p * x);
-    const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
-    return 0.5 * (1.0 + sign * y);
-  }
-
   // Calculate Z-scores for each breakeven
   const zScores = breakevens.map(be => Math.log(be / spot) / sigma);
 
@@ -230,7 +363,11 @@ function calculateNetPremium(legs) {
 }
 
 module.exports = {
+  normCDF,
+  blackScholesPrice,
   calculatePayoff,
+  calculatePayoffAtDate,
+  calculatePayoffGrid,
   calculateBreakevens,
   calculateMaxProfitLoss,
   calculateSDMoves,

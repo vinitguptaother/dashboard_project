@@ -7,6 +7,7 @@ import {
   Clock, ChevronDown, ChevronUp, RefreshCw, Brain, Newspaper, LineChart
 } from 'lucide-react';
 import { ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+import { useMarketStatus } from '../hooks/useMarketStatus';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -96,6 +97,7 @@ const StockSearchTab = () => {
   const [error, setError] = useState<string | null>(null);
   const [paperTradeLoading, setPaperTradeLoading] = useState(false);
   const [paperTradeSaved, setPaperTradeSaved] = useState(false);
+  const marketStatus = useMarketStatus();
 
   // ── Search stocks ──────────────────────────────────────────────────────────
   const handleSearch = async (query: string) => {
@@ -292,6 +294,21 @@ const StockSearchTab = () => {
   // ── Paper Trade: manual save handler ──────────────────────────────────────
   const handlePaperTrade = async () => {
     if (!analysis?.recommendation || !analysis.price) return;
+
+    // Off-hours warning: entry price will be EOD/last-close, not live
+    if (marketStatus && !marketStatus.isOpen) {
+      const reason = marketStatus.holidayName
+        ? `NSE Holiday (${marketStatus.holidayName})`
+        : marketStatus.state === 'CLOSED_WEEKEND' ? 'weekend' : 'after market hours';
+      const ok = window.confirm(
+        `Market is currently closed (${reason}).\n\n` +
+        `The entry price will be the last session's close, NOT a live price. ` +
+        `When markets reopen the actual entry can be significantly different due to gap-up/down.\n\n` +
+        `Save this paper trade anyway?`
+      );
+      if (!ok) return;
+    }
+
     const r = analysis.recommendation;
     setPaperTradeLoading(true);
     try {

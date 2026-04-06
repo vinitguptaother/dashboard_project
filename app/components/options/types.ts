@@ -145,5 +145,11 @@ export interface DraftPortfolio {
 export interface StrategyPreset {
   name: string;
   category: 'bullish' | 'bearish' | 'neutral' | 'volatile';
+  description?: string;
   legs: (atm: number, step: number) => Omit<StrategyLeg, 'id' | 'premium' | 'lotSize' | 'iv' | 'delta' | 'theta' | 'gamma' | 'vega'>[];
+}
+
+export interface PayoffPoint {
+  spot: number;
+  pnl: number;
 }

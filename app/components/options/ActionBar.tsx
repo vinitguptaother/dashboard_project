@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Plus, Brain, MoreHorizontal } from 'lucide-react';
+import { Plus, Brain, Calculator } from 'lucide-react';
 
 interface Props {
   hasLegs: boolean;
@@ -9,10 +9,11 @@ interface Props {
   onAddEdit: () => void;
   onTradeAll: () => void;
   onAIAnalysis: () => void;
+  onCharges: () => void;
   aiLoading: boolean;
 }
 
-export default function ActionBar({ hasLegs, hasPayoff, onAddEdit, onTradeAll, onAIAnalysis, aiLoading }: Props) {
+export default function ActionBar({ hasLegs, hasPayoff, onAddEdit, onTradeAll, onAIAnalysis, onCharges, aiLoading }: Props) {
   return (
     <div className="px-3 py-3 border-t border-gray-100 dark:border-gray-800">
       <div className="flex items-center gap-2">
@@ -38,7 +39,17 @@ export default function ActionBar({ hasLegs, hasPayoff, onAddEdit, onTradeAll, o
           Trade All
         </button>
 
-        {/* More menu */}
+        {/* Charges */}
+        <button
+          onClick={onCharges}
+          disabled={!hasLegs}
+          className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-40"
+          title="Charges Calculator"
+        >
+          <Calculator className="w-4 h-4" />
+        </button>
+
+        {/* AI Analysis */}
         <button
           onClick={onAIAnalysis}
           disabled={!hasLegs || aiLoading}

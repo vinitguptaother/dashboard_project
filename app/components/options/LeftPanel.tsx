@@ -25,6 +25,7 @@ interface Props {
   onUpdateStrike: (id: string, direction: -1 | 1) => void;
   onRemoveLeg: (id: string) => void;
   onResetPrices: () => void;
+  onClearAll: () => void;
   selectedExpiry: string;
 
   // Controls
@@ -40,6 +41,7 @@ interface Props {
   onAddEdit: () => void;
   onTradeAll: () => void;
   onAIAnalysis: () => void;
+  onCharges: () => void;
   aiLoading: boolean;
 
   // Bottom tabs
@@ -75,6 +77,7 @@ export default function LeftPanel(props: Props) {
           onUpdateStrike={props.onUpdateStrike}
           onRemove={props.onRemoveLeg}
           onResetPrices={props.onResetPrices}
+          onClearAll={props.onClearAll}
           selectedExpiry={props.selectedExpiry}
         />
 
@@ -94,6 +97,7 @@ export default function LeftPanel(props: Props) {
           onAddEdit={props.onAddEdit}
           onTradeAll={props.onTradeAll}
           onAIAnalysis={props.onAIAnalysis}
+          onCharges={props.onCharges}
           aiLoading={props.aiLoading}
         />
       </div>

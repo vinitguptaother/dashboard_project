@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { Zap, BarChart3, BookOpen, Layers } from 'lucide-react';
 import { StrategyPreset, OptionsMockTrade, TradeStats } from './types';
-import { STRATEGY_PRESETS } from './constants';
+import { STRATEGY_PRESETS, STRATEGY_CATEGORIES } from './constants';
 import { formatINRCompact } from './utils';
 
 type TabId = 'ready-made' | 'positions' | 'saved' | 'drafts';
@@ -95,32 +95,68 @@ export default function BottomTabs({
 // ─── Ready-made strategies ────────────────────────────────────────────────────
 
 function ReadyMadeContent({ onApplyPreset, chainLoaded }: { onApplyPreset: (name: string) => void; chainLoaded: boolean }) {
-  const grouped = STRATEGY_PRESETS.reduce((acc, p) => {
-    (acc[p.category] = acc[p.category] || []).push(p);
-    return acc;
-  }, {} as Record<string, StrategyPreset[]>);
+  const [filter, setFilter] = useState<string>('all');
+
+  const filtered = filter === 'all'
+    ? STRATEGY_PRESETS
+    : STRATEGY_PRESETS.filter(p => p.category === filter);
 
   return (
-    <div className="space-y-3">
-      {Object.entries(grouped).map(([category, presets]) => (
-        <div key={category}>
-          <div className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1 px-1">
-            {CATEGORY_LABELS[category] || category}
-          </div>
-          <div className="space-y-0.5">
-            {presets.map(p => (
-              <button
-                key={p.name}
-                onClick={() => onApplyPreset(p.name)}
-                disabled={!chainLoaded}
-                className="w-full text-left px-2 py-1.5 rounded text-sm text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-600 dark:hover:text-blue-400 transition-colors disabled:opacity-40"
-              >
+    <div className="space-y-2">
+      {/* Category filter pills */}
+      <div className="flex items-center gap-1 px-1 pb-1">
+        {STRATEGY_CATEGORIES.map(cat => (
+          <button
+            key={cat}
+            onClick={() => setFilter(cat)}
+            className={`px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors ${
+              filter === cat
+                ? cat === 'bullish' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                : cat === 'bearish' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                : cat === 'volatile' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+                : cat === 'neutral' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+            }`}
+          >
+            {cat === 'all' ? 'All' : CATEGORY_LABELS[cat] || cat}
+          </button>
+        ))}
+      </div>
+
+      {/* Card grid */}
+      <div className="grid grid-cols-2 gap-1.5">
+        {filtered.map(p => (
+          <button
+            key={p.name}
+            onClick={() => onApplyPreset(p.name)}
+            disabled={!chainLoaded}
+            className="text-left p-2.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition-colors disabled:opacity-40 group"
+          >
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 group-hover:text-blue-600 dark:group-hover:text-blue-400">
                 {p.name}
-              </button>
-            ))}
-          </div>
-        </div>
-      ))}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${
+                p.category === 'bullish' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                : p.category === 'bearish' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                : p.category === 'volatile' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+                : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+              }`}>
+                {CATEGORY_LABELS[p.category] || p.category}
+              </span>
+              <span className="text-[9px] text-gray-400">{p.legs(0, 0).length} legs</span>
+            </div>
+            {p.description && (
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 leading-tight line-clamp-2">
+                {p.description}
+              </p>
+            )}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
