@@ -58,7 +58,7 @@ export default function SummaryBar({ payoff, margin }: Props) {
                 payoff.pop >= 40 ? 'text-yellow-600 dark:text-yellow-400' :
                 'text-red-600 dark:text-red-400'
               }`}>
-                {payoff.pop.toFixed(0)}%
+                {(payoff.pop ?? 0).toFixed(0)}%
               </div>
             </div>
           </div>
@@ -70,10 +70,10 @@ export default function SummaryBar({ payoff, margin }: Props) {
         <DetailItem label="Max Profit" value={maxProfitStr} color="green" />
         <DetailItem label="Max Loss" value={maxLossStr} color="red" />
 
-        {payoff.breakevens.length > 0 && (
+        {(payoff.breakevens ?? []).length > 0 && (
           <DetailItem
             label="Breakeven"
-            value={payoff.breakevens.map(b => b.toLocaleString('en-IN', { maximumFractionDigits: 0 })).join(', ')}
+            value={(payoff.breakevens ?? []).map(b => (b ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })).join(', ')}
           />
         )}
 

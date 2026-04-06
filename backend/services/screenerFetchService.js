@@ -128,7 +128,7 @@ async function createSession(email, password) {
  * @param {string} query - e.g. "YoY profit growth > 25% AND QoQ profit growth > 10%"
  * @returns {Array<{name: string, symbol: string}>}
  */
-async function runQueryAndScrape(query) {
+async function runQueryAndScrape(query, options = {}) {
   const creds = loadCredentials();
   if (!creds) throw new Error('No screener.in credentials saved. Please save them first.');
 
@@ -138,9 +138,10 @@ async function runQueryAndScrape(query) {
   let page = 1;
   let hasMore = true;
   let totalResults = null;
+  const latestParam = options.onlyLatestResults ? '&latest=on' : '';
 
   while (hasMore) {
-    const queryUrl = `/screen/raw/?sort=&order=&query=${encodeURIComponent(query)}&limit=&page=${page}`;
+    const queryUrl = `/screen/raw/?sort=&order=&query=${encodeURIComponent(query)}&limit=&page=${page}${latestParam}`;
     let resp;
     try {
       resp = await session.get(queryUrl);
@@ -164,27 +165,38 @@ async function runQueryAndScrape(query) {
       if (countMatch) totalResults = parseInt(countMatch[1]);
     }
 
-    // Find the results table
-    const table = $('table').first();
-    if (!table.length) {
-      // Maybe the query returned no results or there's an error message
+    // Find the results table — screener.in wraps it in .data-table or a table
+    // with a thead containing "S.No." and "Name" columns. We must avoid other
+    // tables on the page (related companies, ads, etc.)
+    let table = null;
+    $('table').each((_, tbl) => {
+      const headerText = $(tbl).find('thead').text().toLowerCase();
+      if (headerText.includes('s.no') && headerText.includes('name')) {
+        table = $(tbl);
+        return false; // break
+      }
+    });
+    // Fallback: try .data-table class, then first table
+    if (!table) table = $('table.data-table').first();
+    if (!table || !table.length) table = $('table').first();
+    if (!table || !table.length) {
       const errorText = $('.alert, .error, .message').text().trim() || '';
       if (errorText) throw new Error(`screener.in: ${errorText}`);
       if (page === 1) throw new Error('No results table found — the query may be invalid.');
       break;
     }
 
-    // Find the "Name" column index
+    // Find the "Name" column index from thead only
     let nameColIdx = -1;
-    table.find('thead th, thead td, tr:first-child th, tr:first-child td').each((i, el) => {
+    table.find('thead th').each((i, el) => {
       if ($(el).text().trim().toLowerCase() === 'name') nameColIdx = i;
     });
     if (nameColIdx === -1) nameColIdx = 1; // fallback: column after S.No.
 
-    // Parse rows
+    // Parse ONLY tbody > tr (direct children) to avoid picking up nested tables
     let rowsOnPage = 0;
-    table.find('tbody tr, tr').each((_, tr) => {
-      const cells = $(tr).find('td');
+    table.find('tbody > tr').each((_, tr) => {
+      const cells = $(tr).find('> td');  // direct child td only
       if (cells.length < 2) return;
 
       const nameCell = cells.eq(nameColIdx);
@@ -201,7 +213,10 @@ async function runQueryAndScrape(query) {
         companyName = nameCell.text().trim();
       }
 
-      if (companyName && !seen.has(companyName.toUpperCase())) {
+      // Skip header rows that got into tbody (e.g. "S.No." text in first cell)
+      if (!companyName || companyName.toLowerCase() === 'name' || companyName.toLowerCase() === 's.no.') return;
+
+      if (!seen.has(companyName.toUpperCase())) {
         seen.add(companyName.toUpperCase());
         allCompanies.push({
           name: companyName,

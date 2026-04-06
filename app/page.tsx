@@ -17,6 +17,7 @@ import TradeJournalTab from './components/TradeJournalTab';
 import PaperTradingTab from './components/PaperTradingTab';
 import OptionsTab from './components/options/OptionsTab';
 import AIChatbot from './components/AIChatbot';
+import StickyNotes from './components/StickyNotes';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -64,6 +65,7 @@ export default function Home() {
           {renderActiveTab()}
         </div>
       </main>
+      <StickyNotes />
       <AIChatbot />
     </div>
   );

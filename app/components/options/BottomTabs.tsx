@@ -213,7 +213,7 @@ function PositionsContent({
                 <span key={i}>
                   {i > 0 && ' · '}
                   <span className={l.side === 'SELL' ? 'text-red-500' : 'text-green-500'}>{l.side[0]}</span>
-                  {' '}{l.strike} {l.type} @{l.premium.toFixed(1)}
+                  {' '}{l.strike} {l.type} @{(l.premium ?? 0).toFixed(1)}
                 </span>
               ))}
             </div>

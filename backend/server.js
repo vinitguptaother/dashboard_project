@@ -193,6 +193,7 @@ app.use('/api/watchlist', watchlistRoutes);
 app.use('/api/api-usage', require('./routes/apiUsage'));
 app.use('/api/options', require('./routes/options'));
 app.use('/api/market-status', require('./routes/marketStatus'));
+app.use('/api/notes', require('./routes/notes'));
 
 // Error handling middleware
 app.use(errorHandler);

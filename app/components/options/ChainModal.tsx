@@ -26,11 +26,10 @@ export default function ChainModal({
   legs, onAddLeg, onRemoveLeg, expiries, selectedExpiry, onSelectExpiry, lotSize,
 }: Props) {
   const [defaultSide, setDefaultSide] = useState<'BUY' | 'SELL'>('SELL');
-
-  if (!isOpen) return null;
-
   const maxCEOI = useMemo(() => Math.max(...(visibleStrikes.length ? visibleStrikes.map(s => s.ce.oi) : [1]), 1), [visibleStrikes]);
   const maxPEOI = useMemo(() => Math.max(...(visibleStrikes.length ? visibleStrikes.map(s => s.pe.oi) : [1]), 1), [visibleStrikes]);
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex">
@@ -136,8 +135,8 @@ export default function ChainModal({
                       {s.ce.oi > 0 && <div className="h-0.5 rounded-full bg-green-400/70 ml-auto mt-0.5" style={{ width: `${Math.min(100, Math.round((s.ce.oi / maxCEOI) * 100))}%` }} />}
                     </td>
                     <td className={`py-1.5 px-1 text-right font-mono-nums ${ceITM ? 'bg-green-50/50 dark:bg-green-900/10' : ''}`}>{formatNum(s.ce.volume, 0)}</td>
-                    <td className={`py-1.5 px-1 text-right font-mono-nums ${ceITM ? 'bg-green-50/50 dark:bg-green-900/10' : ''}`}>{(s.ce.iv * 100).toFixed(1)}</td>
-                    <td className={`py-1.5 px-1 text-right font-mono-nums font-semibold ${ceITM ? 'bg-green-50/50 dark:bg-green-900/10' : ''}`}>{s.ce.ltp.toFixed(1)}</td>
+                    <td className={`py-1.5 px-1 text-right font-mono-nums ${ceITM ? 'bg-green-50/50 dark:bg-green-900/10' : ''}`}>{((s.ce.iv ?? 0) * 100).toFixed(1)}</td>
+                    <td className={`py-1.5 px-1 text-right font-mono-nums font-semibold ${ceITM ? 'bg-green-50/50 dark:bg-green-900/10' : ''}`}>{(s.ce.ltp ?? 0).toFixed(1)}</td>
 
                     {/* Strike */}
                     <td className={`py-1.5 px-2 text-center font-mono-nums font-bold text-sm ${atm ? 'text-blue-600 dark:text-blue-400' : 'text-gray-800 dark:text-gray-200'}`}>
@@ -146,8 +145,8 @@ export default function ChainModal({
                     </td>
 
                     {/* PE side */}
-                    <td className={`py-1.5 px-1 text-left font-mono-nums font-semibold ${peITM ? 'bg-red-50/50 dark:bg-red-900/10' : ''}`}>{s.pe.ltp.toFixed(1)}</td>
-                    <td className={`py-1.5 px-1 text-left font-mono-nums ${peITM ? 'bg-red-50/50 dark:bg-red-900/10' : ''}`}>{(s.pe.iv * 100).toFixed(1)}</td>
+                    <td className={`py-1.5 px-1 text-left font-mono-nums font-semibold ${peITM ? 'bg-red-50/50 dark:bg-red-900/10' : ''}`}>{(s.pe.ltp ?? 0).toFixed(1)}</td>
+                    <td className={`py-1.5 px-1 text-left font-mono-nums ${peITM ? 'bg-red-50/50 dark:bg-red-900/10' : ''}`}>{((s.pe.iv ?? 0) * 100).toFixed(1)}</td>
                     <td className={`py-1.5 px-1 text-left font-mono-nums ${peITM ? 'bg-red-50/50 dark:bg-red-900/10' : ''}`}>{formatNum(s.pe.volume, 0)}</td>
                     <td className={`py-1.5 px-1 text-left font-mono-nums ${peITM ? 'bg-red-50/50 dark:bg-red-900/10' : ''}`}>
                       <div>{formatNum(s.pe.oi, 0)}</div>

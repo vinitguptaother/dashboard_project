@@ -850,6 +850,43 @@ router.get('/:screenId/batches', async (req, res) => {
 });
 
 /**
+ * @route   DELETE /api/screens/batch/:batchId
+ * @desc    Delete a saved batch and its associated trade setups
+ */
+router.delete('/batch/:batchId', async (req, res) => {
+  try {
+    const batch = await ScreenBatch.findById(req.params.batchId);
+    if (!batch) {
+      return res.status(404).json({ status: 'error', message: 'Batch not found' });
+    }
+
+    // Also delete trade setups linked to this batch
+    const TradeSetup = require('../models/TradeSetup');
+    const deletedSetups = await TradeSetup.deleteMany({ screenBatchId: req.params.batchId });
+
+    await ScreenBatch.findByIdAndDelete(req.params.batchId);
+
+    apiLogger.info('Screens API', 'deleteBatch', {
+      batchId: req.params.batchId,
+      screenName: batch.screenName,
+      deletedSetups: deletedSetups.deletedCount,
+    });
+
+    res.json({
+      status: 'success',
+      data: {
+        deletedBatch: req.params.batchId,
+        deletedSetups: deletedSetups.deletedCount,
+        screenName: batch.screenName,
+      },
+    });
+  } catch (error) {
+    apiLogger.error('Screens API', 'deleteBatch', error);
+    res.status(500).json({ status: 'error', message: 'Failed to delete batch' });
+  }
+});
+
+/**
  * @route   GET /api/screens/:id
  * @desc    Get a single screen by ID
  * @access  Public (add auth later if needed)
@@ -1552,7 +1589,7 @@ router.post('/screener-logout', (req, res) => {
  */
 router.post('/screener-fetch', async (req, res) => {
   try {
-    const { query, screenName } = req.body;
+    const { query, screenName, onlyLatestResults } = req.body;
     if (!query || !query.trim()) {
       return res.status(400).json({ status: 'error', message: 'Screen query is required. Add a Screener Query to this screen first.' });
     }
@@ -1560,7 +1597,7 @@ router.post('/screener-fetch', async (req, res) => {
       return res.status(401).json({ status: 'error', message: 'No screener.in credentials saved. Click "Connect Screener.in" first.' });
     }
 
-    const result = await runQueryAndScrape(query.trim());
+    const result = await runQueryAndScrape(query.trim(), { onlyLatestResults: !!onlyLatestResults });
 
     // Dedup check
     const today = new Date();

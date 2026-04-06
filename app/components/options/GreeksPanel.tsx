@@ -73,8 +73,8 @@ export default function GreeksPanel({ payoff, chain, legs, spotPrice }: Props) {
               <div key={leg.id} className="grid grid-cols-4 gap-px px-3 py-1.5 text-xs border-t border-gray-100 dark:border-gray-700">
                 <span className="font-mono-nums text-gray-800 dark:text-gray-200">{leg.strike.toLocaleString('en-IN')}</span>
                 <span className={leg.type === 'CE' ? 'text-green-600' : 'text-red-600'}>{leg.type}</span>
-                <span className="text-right font-mono-nums text-gray-700 dark:text-gray-300">{(leg.iv * 100).toFixed(1)}</span>
-                <span className="text-right font-mono-nums text-gray-700 dark:text-gray-300">{leg.delta.toFixed(2)}</span>
+                <span className="text-right font-mono-nums text-gray-700 dark:text-gray-300">{((leg.iv ?? 0) * 100).toFixed(1)}</span>
+                <span className="text-right font-mono-nums text-gray-700 dark:text-gray-300">{(leg.delta ?? 0).toFixed(2)}</span>
               </div>
             ))}
           </div>

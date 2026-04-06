@@ -71,11 +71,11 @@ export default function InsightsPanel({ payoff, margin, legs, daysToExpiry }: Pr
     }
 
     // Low POP
-    if (payoff.pop > 0 && payoff.pop < 30) {
+    if ((payoff.pop ?? 0) > 0 && (payoff.pop ?? 0) < 30) {
       result.push({
         type: 'warning',
         title: 'Low Probability of Profit',
-        description: `POP is only ${payoff.pop}%. The odds are against this strategy being profitable.`,
+        description: `POP is only ${payoff.pop ?? 0}%. The odds are against this strategy being profitable.`,
       });
     }
 
@@ -111,16 +111,16 @@ export default function InsightsPanel({ payoff, margin, legs, daysToExpiry }: Pr
     }
 
     // High POP
-    if (payoff.pop >= 70) {
+    if ((payoff.pop ?? 0) >= 70) {
       result.push({
         type: 'success',
         title: 'High Probability of Profit',
-        description: `POP is ${payoff.pop}%. This strategy has a strong statistical edge.`,
+        description: `POP is ${payoff.pop ?? 0}%. This strategy has a strong statistical edge.`,
       });
     }
 
     // Wide breakevens (info)
-    if (payoff.breakevens.length === 2) {
+    if ((payoff.breakevens ?? []).length === 2) {
       const range = payoff.breakevens[1] - payoff.breakevens[0];
       const rangePercent = (range / payoff.breakevens[0]) * 100;
       if (rangePercent > 10) {

@@ -113,6 +113,10 @@ const ScreensTab = () => {
   const [fetchedCompanies, setFetchedCompanies] = useState<{name: string, symbol: string}[]>([]);
   const [fetchedScreenName, setFetchedScreenName] = useState('');
   const [alreadyImportedToday, setAlreadyImportedToday] = useState(false);
+  const [onlyLatestResults, setOnlyLatestResults] = useState(true);
+  const [autoPipeline, setAutoPipeline] = useState(true);
+  const [pipelineStatus, setPipelineStatus] = useState<string | null>(null);
+  const [pipelineRunning, setPipelineRunning] = useState(false);
 
   useEffect(() => { fetchScreens(); fetchPerformance(); fetchRecommendations(); checkScreenerStatus(); }, []);
 
@@ -230,6 +234,10 @@ const ScreensTab = () => {
     setRankingError(null);
     setSetupError(null);
     setSaveWarning(null);
+    setPipelineStatus(null);
+    setPipelineRunning(false);
+    setFetchError(null);
+    setLastImportInfo(null);
     localStorage.removeItem('screenBatch');
     localStorage.removeItem('screenBatchImportInfo');
   };
@@ -438,7 +446,7 @@ const ScreensTab = () => {
       const res = await fetch(`${BACKEND_URL}/api/screens/screener-fetch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: query.trim(), screenName: selectedScreen.name }),
+        body: JSON.stringify({ query: query.trim(), screenName: selectedScreen.name, onlyLatestResults }),
       });
       const json = await res.json();
       if (json.status === 'success' && json.data?.companies) {
@@ -473,12 +481,108 @@ const ScreensTab = () => {
     setBatches(prev => [...prev, newBatch]);
     setShowFetchModal(false);
     setFetchedCompanies([]);
+
+    // Auto-pipeline: rank → generate setups → saved to paper trade automatically
+    if (autoPipeline && stocks.length > 0) {
+      runAutoPipeline(stocks);
+    }
+  };
+
+  const runAutoPipeline = async (stocks: {symbol: string, name: string}[]) => {
+    const screen = screens.find(s => s.id === selectedScreenId);
+    setPipelineRunning(true);
+    setPipelineStatus('Step 1/3: AI Ranking stocks...');
+    setIsRanking(true);
+    setRankingError(null);
+    setRankedResults([]);
+    setTradeSetups([]);
+    setSetupError(null);
+
+    try {
+      // Step 1: Rank
+      const symbols = stocks.map(s => s.symbol);
+      const rankRes = await fetch(`${BACKEND_URL}/api/screens/rankBatch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbols })
+      });
+      if (!rankRes.ok) throw new Error(`Ranking failed: ${rankRes.status}`);
+      const rankResult = await rankRes.json();
+      if (rankResult.status !== 'success' || !Array.isArray(rankResult.data?.ranked)) {
+        throw new Error(rankResult.message || 'Invalid ranking response');
+      }
+      const sorted = [...rankResult.data.ranked].sort((a: RankedSymbol, b: RankedSymbol) => b.score - a.score);
+      setRankedResults(sorted);
+      setIsRanking(false);
+
+      // Save batch to DB
+      setPipelineStatus('Step 2/3: Saving batch to database...');
+      try {
+        await fetch(`${BACKEND_URL}/api/screens/saveBatch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            screenId: screen?.id || null,
+            screenName: screen?.name || 'Unnamed Screen',
+            symbols,
+            rankedResults: sorted,
+          })
+        });
+      } catch {}
+
+      // Step 3: Generate trade setups for top N
+      setPipelineStatus(`Step 3/3: Generating AI trade setups for top ${setupCount} stocks...`);
+      setIsGeneratingSetups(true);
+      const topSymbols = sorted.slice(0, setupCount).map((r: RankedSymbol) => r.symbol);
+      const setupRes = await fetch(`${BACKEND_URL}/api/trade-setup/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbols: topSymbols,
+          screenBatchId: null,
+          screenName: screen?.name || 'Unknown Screen',
+        }),
+      });
+      if (!setupRes.ok) throw new Error(`Setup generation failed: ${setupRes.status}`);
+      const setupResult = await setupRes.json();
+      if (setupResult.status === 'success' && setupResult.data) {
+        const newSetups = Array.isArray(setupResult.data.setups) ? setupResult.data.setups : [];
+        const updated = Array.isArray(setupResult.data.updated) ? setupResult.data.updated : [];
+        const skipped = Array.isArray(setupResult.data.skipped) ? setupResult.data.skipped : [];
+        setTradeSetups(newSetups);
+        setDuplicateInfo({ updated, skipped });
+        setPipelineStatus(`✅ Done! ${sorted.length} ranked, ${newSetups.length} new setups saved to Paper Trade, ${updated.length} updated, ${skipped.length} skipped.`);
+      } else {
+        throw new Error(setupResult.message || 'Invalid setup response');
+      }
+    } catch (error: any) {
+      setPipelineStatus(`❌ Pipeline error: ${error.message}`);
+      setRankingError(error.message);
+    } finally {
+      setIsRanking(false);
+      setIsGeneratingSetups(false);
+      setPipelineRunning(false);
+    }
   };
 
   const handleCloseFetchModal = () => {
     setShowFetchModal(false);
     setFetchError(null);
     setFetchedCompanies([]);
+  };
+
+  const handleDeleteBatch = async (batchId: string, screenName: string) => {
+    if (!confirm(`Delete batch from "${screenName}"? This will also delete all trade setups generated from this batch.`)) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/screens/batch/${batchId}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (json.status === 'success') {
+        setPreviousBatches(prev => prev.filter(b => b._id !== batchId));
+        alert(`Deleted batch + ${json.data.deletedSetups} trade setups.`);
+      } else {
+        alert(json.message || 'Failed to delete');
+      }
+    } catch { alert('Network error deleting batch'); }
   };
 
   const formatDate = (isoString: string) => {
@@ -813,6 +917,30 @@ const ScreensTab = () => {
                       </>
                     )}
                   </div>
+                  <div className="flex flex-wrap items-center gap-4">
+                    {screenerConnected && (
+                      <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+                        <input type="checkbox" checked={onlyLatestResults} onChange={(e) => setOnlyLatestResults(e.target.checked)}
+                          className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500" />
+                        Only companies with latest quarterly results
+                      </label>
+                    )}
+                    <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+                      <input type="checkbox" checked={autoPipeline} onChange={(e) => setAutoPipeline(e.target.checked)}
+                        className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500" />
+                      Auto-rank &amp; generate trade setups on import
+                    </label>
+                  </div>
+                  {pipelineStatus && (
+                    <div className={`text-sm p-3 rounded-lg flex items-center gap-2 ${
+                      pipelineStatus.startsWith('✅') ? 'bg-green-50 text-green-700' :
+                      pipelineStatus.startsWith('❌') ? 'bg-red-50 text-red-700' :
+                      'bg-blue-50 text-blue-700'
+                    }`}>
+                      {pipelineRunning && <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />}
+                      {pipelineStatus}
+                    </div>
+                  )}
                   <div className="flex items-center justify-between text-sm text-gray-600">
                     <div>
                       <span className="font-medium">Last import:</span> {lastImportInfo ? `${lastImportInfo.date} · ${lastImportInfo.count} companies` : 'none'}
@@ -1127,6 +1255,9 @@ const ScreensTab = () => {
                 <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                   <Clock className="h-5 w-5 mr-2 text-indigo-600" />
                   Previous Batches
+                  {previousBatches.length > 0 && (
+                    <span className="ml-2 text-sm font-normal text-gray-500">({previousBatches.length} batches)</span>
+                  )}
                 </h3>
                 {loadingBatches ? (
                   <div className="text-center py-6 text-gray-500 text-sm">Loading batches...</div>
@@ -1134,25 +1265,34 @@ const ScreensTab = () => {
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50"><tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Batch Size</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Screen</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stocks</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                       </tr></thead>
                       <tbody className="bg-white divide-y divide-gray-200">
                         {previousBatches.map((batch) => (
-                          <tr key={batch._id}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          <tr key={batch._id} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
                               {new Date(batch.runDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{batch.batchSize} stocks</td>
-                            <td className="px-6 py-4 whitespace-nowrap">
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">{batch.screenName || '—'}</td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 font-mono">{batch.batchSize}</td>
+                            <td className="px-4 py-3 whitespace-nowrap flex gap-2">
                               <button
                                 onClick={() => handleLoadBatch(batch._id)}
                                 disabled={loadingBatchId === batch._id}
-                                className="px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded-lg transition-colors flex items-center gap-1.5"
+                                className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded-lg transition-colors flex items-center gap-1"
                               >
-                                <RotateCcw className={`h-3.5 w-3.5 ${loadingBatchId === batch._id ? 'animate-spin' : ''}`} />
+                                <RotateCcw className={`h-3 w-3 ${loadingBatchId === batch._id ? 'animate-spin' : ''}`} />
                                 {loadingBatchId === batch._id ? 'Loading...' : 'Load'}
+                              </button>
+                              <button
+                                onClick={() => handleDeleteBatch(batch._id, batch.screenName || 'Unknown')}
+                                className="px-3 py-1.5 text-xs border border-red-300 text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                Delete
                               </button>
                             </td>
                           </tr>

@@ -122,18 +122,21 @@ export default function PnLTable({ legs, spotPrice, daysToExpiry }: Props) {
                   {formatSpot(spot)}
                   {rowIdx === closestSpotIdx && <span className="ml-1 text-[9px] text-blue-500">●</span>}
                 </td>
-                {data.grid[rowIdx].map((pnl, colIdx) => (
-                  <td
-                    key={colIdx}
-                    className={`py-1.5 px-2 text-center font-mono-nums font-medium ${
-                      pnl >= 0
-                        ? 'text-green-600 dark:text-green-400'
-                        : 'text-red-600 dark:text-red-400'
-                    } ${data.daysRemaining[colIdx] === 0 ? 'bg-blue-50/30 dark:bg-blue-900/5' : ''}`}
-                  >
-                    {pnl >= 0 ? '+' : ''}{formatPnL(pnl)}
-                  </td>
-                ))}
+                {data.grid[rowIdx].map((pnl, colIdx) => {
+                  const val = pnl ?? 0;
+                  return (
+                    <td
+                      key={colIdx}
+                      className={`py-1.5 px-2 text-center font-mono-nums font-medium ${
+                        val >= 0
+                          ? 'text-green-600 dark:text-green-400'
+                          : 'text-red-600 dark:text-red-400'
+                      } ${data.daysRemaining[colIdx] === 0 ? 'bg-blue-50/30 dark:bg-blue-900/5' : ''}`}
+                    >
+                      {val >= 0 ? '+' : ''}{formatPnL(val)}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
