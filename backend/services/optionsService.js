@@ -10,7 +10,7 @@ class OptionsService {
 
     // In-memory cache (options data is time-sensitive)
     this.cache = {};
-    this.CACHE_TTL = 30 * 1000; // 30 seconds
+    this.CACHE_TTL = 8 * 1000; // 8 seconds — fast refresh for live P&L
 
     // Underlying → Upstox instrument key mapping
     this.underlyingMap = {

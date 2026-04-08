@@ -16,6 +16,7 @@ import SettingsTab from './components/SettingsTab';
 import TradeJournalTab from './components/TradeJournalTab';
 import PaperTradingTab from './components/PaperTradingTab';
 import OptionsTab from './components/options/OptionsTab';
+import ActivitySummaryTab from './components/ActivitySummaryTab';
 import AIChatbot from './components/AIChatbot';
 import StickyNotes from './components/StickyNotes';
 
@@ -50,6 +51,8 @@ export default function Home() {
         return <PaperTradingTab />;
       case 'options':
         return <OptionsTab />;
+      case 'activity':
+        return <ActivitySummaryTab />;
       case 'settings':
         return <SettingsTab />;
       default:

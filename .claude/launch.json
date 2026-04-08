@@ -3,14 +3,14 @@
   "configurations": [
     {
       "name": "frontend",
-      "runtimeExecutable": "node",
-      "runtimeArgs": ["-e", "setTimeout(()=>{},999999)"],
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
       "port": 3000
     },
     {
       "name": "backend",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["-e", "setTimeout(()=>{},999999)"],
+      "runtimeArgs": ["backend/server.js"],
       "port": 5002
     }
   ]

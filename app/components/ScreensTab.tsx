@@ -501,10 +501,14 @@ const ScreensTab = () => {
     try {
       // Step 1: Rank
       const symbols = stocks.map(s => s.symbol);
+      const companyNames = stocks.reduce((map: Record<string, string>, s) => {
+        if (s.name) map[s.symbol.toUpperCase()] = s.name;
+        return map;
+      }, {});
       const rankRes = await fetch(`${BACKEND_URL}/api/screens/rankBatch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbols })
+        body: JSON.stringify({ symbols, companyNames })
       });
       if (!rankRes.ok) throw new Error(`Ranking failed: ${rankRes.status}`);
       const rankResult = await rankRes.json();
@@ -531,9 +535,11 @@ const ScreensTab = () => {
       } catch {}
 
       // Step 3: Generate trade setups for top N
+      // Send extra candidates (2x) so backend can skip active duplicates and still fill N slots
       setPipelineStatus(`Step 3/3: Generating AI trade setups for top ${setupCount} stocks...`);
       setIsGeneratingSetups(true);
-      const topSymbols = sorted.slice(0, setupCount).map((r: RankedSymbol) => r.symbol);
+      const candidateCount = Math.min(sorted.length, setupCount * 2);
+      const topSymbols = sorted.slice(0, candidateCount).map((r: RankedSymbol) => r.symbol);
       const setupRes = await fetch(`${BACKEND_URL}/api/trade-setup/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -541,6 +547,7 @@ const ScreensTab = () => {
           symbols: topSymbols,
           screenBatchId: null,
           screenName: screen?.name || 'Unknown Screen',
+          setupCount,
         }),
       });
       if (!setupRes.ok) throw new Error(`Setup generation failed: ${setupRes.status}`);
@@ -654,10 +661,14 @@ const ScreensTab = () => {
     setRankedResults([]);
     try {
       const symbols = localBatchStocks.map(s => s.symbol);
+      const companyNames = localBatchStocks.reduce((map: Record<string, string>, s) => {
+        if (s.name) map[s.symbol.toUpperCase()] = s.name;
+        return map;
+      }, {});
       const response = await fetch(`${BACKEND_URL}/api/screens/rankBatch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbols })
+        body: JSON.stringify({ symbols, companyNames })
       });
       if (!response.ok) throw new Error(`API error: ${response.status}`);
       const result = await response.json();
@@ -702,9 +713,10 @@ const ScreensTab = () => {
     setTradeSetups([]);
     setDuplicateInfo({ updated: [], skipped: [] });
     try {
-      // Take top N stocks that have action potential (positive score preferred)
+      // Send extra candidates (2x) so backend can skip active duplicates and still fill N slots
+      const candidateCount = Math.min(rankedResults.length, setupCount * 2);
       const topSymbols = rankedResults
-        .slice(0, setupCount)
+        .slice(0, candidateCount)
         .map(r => r.symbol);
 
       const response = await fetch(`${BACKEND_URL}/api/trade-setup/generate`, {
@@ -714,6 +726,7 @@ const ScreensTab = () => {
           symbols: topSymbols,
           screenBatchId: previousBatches[0]?._id || null,
           screenName: selectedScreen?.name || 'Unknown Screen',
+          setupCount,
         }),
       });
 

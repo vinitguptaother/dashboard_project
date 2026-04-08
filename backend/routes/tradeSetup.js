@@ -8,6 +8,7 @@ const axios = require('axios');
 const TradeSetup = require('../models/TradeSetup');
 const { apiLogger } = require('../middleware/logger');
 const aiService = require('../services/aiService');
+const logActivity = require('../utils/logActivity');
 const trackAPI = require('../utils/trackAPI');
 
 const router = express.Router();
@@ -133,10 +134,50 @@ router.post(
         });
       }
 
-      const { symbols, screenBatchId, screenName } = req.body;
+      const { symbols, screenBatchId, screenName, setupCount } = req.body;
       const cleanSymbols = symbols.map((s) => s.trim().toUpperCase());
+      const maxSetups = setupCount || cleanSymbols.length; // How many new setups the user wants
 
-      apiLogger.info('TradeSetup', 'generate:start', { symbols: cleanSymbols });
+      apiLogger.info('TradeSetup', 'generate:start', { symbols: cleanSymbols, setupCount: maxSetups });
+
+      // ── Pre-filter: find which symbols already have ACTIVE trades ──
+      const preExisting = await TradeSetup.find({
+        symbol: { $in: cleanSymbols },
+        status: 'ACTIVE',
+        action: { $in: ['BUY', 'SELL', 'ACCUMULATE'] },
+      }).lean();
+      const activeSymbols = new Set(preExisting.map(t => t.symbol.toUpperCase()));
+
+      // Pick enough non-active symbols to fill setupCount slots
+      const symbolsToGenerate = [];
+      const preSkipped = [];
+      for (const sym of cleanSymbols) {
+        if (activeSymbols.has(sym)) {
+          const existing = preExisting.find(t => t.symbol.toUpperCase() === sym);
+          preSkipped.push({
+            symbol: sym,
+            reason: `Already active from ${existing?.screenName || 'another screen'} (entry ₹${existing?.entryPrice || '?'})`,
+          });
+        } else {
+          if (symbolsToGenerate.length < maxSetups) {
+            symbolsToGenerate.push(sym);
+          }
+        }
+      }
+
+      apiLogger.info('TradeSetup', 'generate:preFilter', {
+        total: cleanSymbols.length,
+        activeSkipped: preSkipped.length,
+        toGenerate: symbolsToGenerate.length,
+      });
+
+      // If all symbols are already active, return early
+      if (symbolsToGenerate.length === 0) {
+        return res.json({
+          status: 'success',
+          data: { setups: [], updated: [], skipped: preSkipped },
+        });
+      }
 
       // Fetch performance context from feedback loop (if screen has resolved trades)
       let performanceContext = '';
@@ -150,7 +191,7 @@ router.post(
         console.warn('⚠️ Failed to get screen context, proceeding without:', fbErr.message);
       }
 
-      const symbolList = cleanSymbols.join(', ');
+      const symbolList = symbolsToGenerate.join(', ');
 
       // Fetch market context (cached 10 min — adds NIFTY trend, VIX, regime)
       let marketContext = '';
@@ -323,22 +364,29 @@ RULES:
         }
       }
 
+      // Merge pre-filtered skips with post-AI skips
+      const allSkipped = [...preSkipped, ...skippedSetups];
+
       apiLogger.info('TradeSetup', 'generate:complete', {
         requested: cleanSymbols.length,
+        sentToAI: symbolsToGenerate.length,
         newTrades: savedSetups.length,
         updated: updatedSetups.length,
-        skipped: skippedSetups.length,
+        skipped: allSkipped.length,
       });
+
+      logActivity('trade_setup', 'generated', { symbols: symbolsToGenerate.slice(0, 5), newCount: savedSetups.length, updated: updatedSetups.length, skipped: allSkipped.length });
 
       res.json({
         status: 'success',
         data: {
           setups: savedSetups,
           updated: updatedSetups,
-          skipped: skippedSetups,
+          skipped: allSkipped,
         },
       });
     } catch (error) {
+      logActivity('error', 'trade setup failed', { error: error.message });
       apiLogger.error('TradeSetup', 'generate', error);
       const status = error.response?.status;
       const perplexityMsg = error.response?.data?.error?.message;

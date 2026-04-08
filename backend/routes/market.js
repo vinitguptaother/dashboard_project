@@ -405,7 +405,7 @@ router.get('/search/:query', optionalAuth, async (req, res) => {
 
     // ── Source 1: Instruments collection (fast, has instrument_key) ──────────
     const dbInstruments = await Instrument.find({
-      exchange: 'NSE',
+      exchange: { $in: ['NSE_EQ', 'BSE_EQ', 'NSE', 'BSE'] },
       $or: [
         { symbol: { $regex: `^${q}`, $options: 'i' } },
         { name:   { $regex: q,       $options: 'i' } },
@@ -464,7 +464,7 @@ router.get('/search/:query', optionalAuth, async (req, res) => {
       results.push({
         symbol:        inst.symbol,
         name:          inst.name || inst.symbol,
-        exchange:      inst.exchange,
+        exchange:      inst.exchange?.replace('_EQ', '') || 'NSE',
         instrumentKey: inst.token || null,
         isin:          inst.isin  || null,
         price: null, change: null, changePercent: null, volume: null, lastUpdated: null,
@@ -583,6 +583,14 @@ router.get('/historical/:symbol', optionalAuth, async (req, res) => {
 router.get('/stock-analysis/:symbol', optionalAuth, async (req, res) => {
   const symbol = req.params.symbol.toUpperCase().replace('.NS', '');
   const yahooSymbol = `${symbol}.NS`;
+  const redis = req.app.locals.redis;
+
+  // Check cache first (10-min TTL) — prevents inconsistent LLM responses on repeat searches
+  const analysisCacheKey = `stock-analysis:${symbol}`;
+  const cachedAnalysis = await getCachedData(redis, analysisCacheKey);
+  if (cachedAnalysis) {
+    return res.json({ status: 'success', data: cachedAnalysis, cached: true });
+  }
 
   try {
     // ── 1. Fetch price from Yahoo v8 chart + sector from Yahoo search ────────
@@ -655,7 +663,71 @@ router.get('/stock-analysis/:symbol', optionalAuth, async (req, res) => {
       console.warn(`⚠️ Yahoo search failed for ${symbol}:`, searchErr.message);
     }
 
-    // 1c. Fundamentals via Perplexity (since Yahoo v10 is blocked)
+    // 1c. Fundamentals — PRIMARY: Screener.in (exact data), FALLBACK: Perplexity (approximate)
+    let fundamentalsSource = 'none';
+
+    // Try Screener.in first (exact, real data — no LLM approximation)
+    try {
+      const { fetchCompanyFundamentals, hasCredentials: hasScreenerCreds } = require('../services/screenerFetchService');
+      if (hasScreenerCreds()) {
+        const screenerData = await fetchCompanyFundamentals(symbol);
+        if (screenerData && Object.keys(screenerData).filter(k => !k.startsWith('_')).length >= 3) {
+          const fmt = (v, suffix = '') => v != null ? `${v}${suffix}` : 'N/A';
+          const fmtCr = (v) => {
+            if (v == null) return 'N/A';
+            if (typeof v === 'string') return v;
+            if (v >= 100000) return `₹${(v / 100000).toFixed(2)}L Cr`;
+            return `₹${Number(v).toLocaleString('en-IN')} Cr`;
+          };
+
+          fundamentals = {
+            'P/E Ratio (TTM)': fmt(screenerData.PE_Ratio || screenerData['Stock P/E']),
+            'Book Value': screenerData.Book_Value != null ? `₹${screenerData.Book_Value}` : fmt(screenerData.PB_Ratio),
+            'ROE': fmt(screenerData.ROE, '%'),
+            'ROCE': fmt(screenerData.ROCE, '%'),
+            'Market Cap': fmtCr(screenerData.Market_Cap_Cr || screenerData['Market Cap']),
+            'Face Value': screenerData.Face_Value != null ? `₹${screenerData.Face_Value}` : 'N/A',
+            'Dividend Yield': fmt(screenerData.Dividend_Yield, '%'),
+            'Promoter Holding': fmt(screenerData.Promoter_Holding, '%'),
+            'FII Holding': fmt(screenerData.FII_Holding, '%'),
+            'DII Holding': fmt(screenerData.DII_Holding, '%'),
+            'EPS': screenerData.EPS != null ? `₹${screenerData.EPS}` : 'N/A',
+            '52-Week High': priceData.fiftyTwoWeekHigh ? `₹${priceData.fiftyTwoWeekHigh}` : 'N/A',
+            '52-Week Low': priceData.fiftyTwoWeekLow ? `₹${priceData.fiftyTwoWeekLow}` : 'N/A',
+            '_source': 'screener.in',
+          };
+
+          // Add any extra fields scraped from screener
+          for (const [key, val] of Object.entries(screenerData)) {
+            if (key.startsWith('_')) continue;
+            const displayKey = key.replace(/_/g, ' ');
+            if (!fundamentals[displayKey] && val != null && val !== 'N/A') {
+              fundamentals[displayKey] = typeof val === 'number' ? fmt(val) : String(val);
+            }
+          }
+
+          if (screenerData.Market_Cap_Cr && !priceData.marketCap) {
+            const mcVal = typeof screenerData.Market_Cap_Cr === 'number' ? screenerData.Market_Cap_Cr : parseFloat(String(screenerData.Market_Cap_Cr).replace(/,/g, ''));
+            if (!isNaN(mcVal)) {
+              priceData.marketCap = mcVal * 10000000;
+              priceData.marketCapFormatted = fmtCr(mcVal);
+            }
+          }
+
+          if (screenerData._companyName && (!priceData.companyName || priceData.companyName === symbol)) {
+            priceData.companyName = screenerData._companyName;
+          }
+
+          fundamentalsSource = 'screener.in';
+          console.log(`✅ Screener.in fundamentals loaded for ${symbol}`);
+        }
+      }
+    } catch (scrErr) {
+      console.warn(`⚠️ Screener.in fundamentals failed for ${symbol}:`, scrErr.message);
+    }
+
+    // Fallback to Perplexity only if Screener.in didn't work
+    if (fundamentalsSource === 'none') {
     try {
       const apiKey = process.env.PERPLEXITY_API_KEY;
       if (apiKey && apiKey !== 'your_perplexity_api_key') {
@@ -813,6 +885,7 @@ Use the most recent available data from Screener.in. All percentage values shoul
     } catch (fundErr) {
       console.warn(`⚠️ Perplexity fundamentals failed for ${symbol}:`, fundErr.message);
     }
+    } // end if (fundamentalsSource === 'none')
 
     // ── 2. Fetch historical OHLCV and calculate technical indicators ──────────
     let technicals = {};
@@ -1063,19 +1136,21 @@ Be realistic. Use actual current prices. If unsure, say HOLD.`;
 
     // ── 5. Paper trading is now manual — user clicks "Paper Trade This" in the frontend ──
 
-    // ── 6. Respond ───────────────────────────────────────────────────────────
-    res.json({
-      status: 'success',
-      data: {
-        symbol,
-        price: priceData,
-        fundamentals,
-        technicals,
-        news,
-        recommendation,
-        analyzedAt: new Date().toISOString(),
-      },
-    });
+    // ── 6. Cache and Respond ──────────────────────────────────────────────────
+    const analysisData = {
+      symbol,
+      price: priceData,
+      fundamentals,
+      technicals,
+      news,
+      recommendation,
+      analyzedAt: new Date().toISOString(),
+    };
+
+    // Cache for 10 minutes — prevents inconsistent data on repeat searches and saves API credits
+    await setCachedData(redis, analysisCacheKey, analysisData, 600);
+
+    res.json({ status: 'success', data: analysisData });
 
   } catch (error) {
     console.error(`Stock analysis error for ${symbol}:`, error);

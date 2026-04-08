@@ -194,6 +194,7 @@ app.use('/api/api-usage', require('./routes/apiUsage'));
 app.use('/api/options', require('./routes/options'));
 app.use('/api/market-status', require('./routes/marketStatus'));
 app.use('/api/notes', require('./routes/notes'));
+app.use('/api/activity', require('./routes/activitySummary'));
 
 // Error handling middleware
 app.use(errorHandler);

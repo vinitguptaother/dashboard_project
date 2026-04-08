@@ -6,7 +6,7 @@ import LegsTable from './LegsTable';
 import StrategyControls from './StrategyControls';
 import ActionBar from './ActionBar';
 import BottomTabs from './BottomTabs';
-import { StrategyLeg, OptionsMockTrade, TradeStats } from './types';
+import { StrategyLeg, OptionsMockTrade, TradeStats, OptionsPortfolio, PortfolioPnL } from './types';
 
 interface Props {
   // Header
@@ -52,10 +52,17 @@ interface Props {
   onCloseTrade: (id: string, exitPnl: number) => void;
   onDeleteTrade: (id: string) => void;
   chainLoaded: boolean;
+  onLoadTrade?: (trade: OptionsMockTrade) => void;
+  // Portfolio
+  portfolios: OptionsPortfolio[];
+  onCreatePortfolio: (name: string, description?: string, color?: string) => Promise<any>;
+  onDeletePortfolio: (id: string) => void;
+  onFetchPortfolioPnL: (id: string, period: string) => Promise<PortfolioPnL | null>;
+  onRemoveTradeFromPortfolio: (portfolioId: string, tradeId: string) => void;
 }
 
 export default function LeftPanel(props: Props) {
-  const [bottomTab, setBottomTab] = useState<'ready-made' | 'positions' | 'saved' | 'drafts'>('ready-made');
+  const [bottomTab, setBottomTab] = useState<'ready-made' | 'positions' | 'saved' | 'portfolios'>('ready-made');
 
   return (
     <div className="flex flex-col h-full">
@@ -112,6 +119,12 @@ export default function LeftPanel(props: Props) {
         onCloseTrade={props.onCloseTrade}
         onDeleteTrade={props.onDeleteTrade}
         chainLoaded={props.chainLoaded}
+        onLoadTrade={props.onLoadTrade}
+        portfolios={props.portfolios}
+        onCreatePortfolio={props.onCreatePortfolio}
+        onDeletePortfolio={props.onDeletePortfolio}
+        onFetchPortfolioPnL={props.onFetchPortfolioPnL}
+        onRemoveTradeFromPortfolio={props.onRemoveTradeFromPortfolio}
       />
     </div>
   );

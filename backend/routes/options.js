@@ -6,6 +6,7 @@ const optionsMath = require('../utils/optionsMath');
 const OptionsTrade = require('../models/OptionsTrade');
 const RealTrade = require('../models/RealTrade');
 const trackAPI = require('../utils/trackAPI');
+const logActivity = require('../utils/logActivity');
 
 // GET /api/options/expiries/:underlying
 // Returns available expiry dates for an underlying (NIFTY, BANKNIFTY, etc.)
@@ -314,6 +315,76 @@ Keep it concise and actionable. Focus on practical advice for an Indian market t
   }
 });
 
+// ─── Live Position Prices ────────────────────────────────────────────────────
+
+// GET /api/options/positions-ltp — Fetch current LTPs for all open trades' legs
+// Returns { tradeId: { totalPnl, spotPrice, legs: [{ strike, type, entryPremium, currentLtp, pnl }] } }
+router.get('/positions-ltp', async (req, res) => {
+  try {
+    const openTrades = await OptionsTrade.find({ status: 'open' }).lean();
+    if (!openTrades.length) return res.json({ status: 'success', data: {} });
+
+    // Group trades by underlying+expiry to minimize API calls
+    const groups = new Map(); // key: "NIFTY|2026-04-17" → trades[]
+    for (const t of openTrades) {
+      const key = `${t.underlying}|${t.expiry}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(t);
+    }
+
+    // Fetch chains for each unique underlying+expiry (uses 30s cache)
+    const chainMap = new Map();
+    for (const [key] of groups) {
+      const [underlying, expiry] = key.split('|');
+      try {
+        const chain = await optionsService.getOptionChain(underlying, expiry);
+        chainMap.set(key, chain);
+      } catch (e) {
+        console.warn(`Options positions-ltp: chain fetch failed for ${key}:`, e.message);
+      }
+    }
+
+    // Calculate per-trade P&L using fresh chain data
+    const result = {};
+    for (const trade of openTrades) {
+      const key = `${trade.underlying}|${trade.expiry}`;
+      const chain = chainMap.get(key);
+      if (!chain) continue;
+
+      const spotPrice = chain.strikes.length > 0
+        ? chain.strikes.reduce((best, s) => {
+            const ceIntrinsic = Math.max(0, s.ce.ltp - (s.pe.ltp || 0));
+            return Math.abs(s.ce.ltp - s.pe.ltp) < Math.abs(best.ce.ltp - best.pe.ltp) ? s : best;
+          }).strike
+        : trade.entrySpot;
+
+      let totalPnl = 0;
+      const legResults = [];
+      for (const leg of trade.legs) {
+        const strikeData = chain.strikes.find(s => s.strike === leg.strike);
+        if (!strikeData) continue;
+        const currentLtp = leg.type === 'CE' ? strikeData.ce.ltp : strikeData.pe.ltp;
+        const direction = leg.side === 'SELL' ? -1 : 1;
+        const pnl = direction * (currentLtp - leg.premium) * leg.qty * (leg.lotSize || 1);
+        totalPnl += pnl;
+        legResults.push({
+          strike: leg.strike, type: leg.type, side: leg.side,
+          entryPremium: leg.premium, currentLtp, pnl,
+          iv: leg.type === 'CE' ? strikeData.ce.iv : strikeData.pe.iv,
+          delta: leg.type === 'CE' ? strikeData.ce.delta : strikeData.pe.delta,
+          theta: leg.type === 'CE' ? strikeData.ce.theta : strikeData.pe.theta,
+        });
+      }
+      result[trade._id] = { totalPnl, spotPrice, legs: legResults };
+    }
+
+    res.json({ status: 'success', data: result });
+  } catch (error) {
+    console.error('Options positions-ltp error:', error.message);
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
 // ─── Phase 4: Options Mock Trading ─────────────────────────────────────────────
 
 // GET /api/options/trades — List all options mock trades
@@ -334,6 +405,7 @@ router.post('/trades', async (req, res) => {
   try {
     const trade = new OptionsTrade(req.body);
     await trade.save();
+    logActivity('options_trade', 'created', { underlying: trade.underlying, strategy: trade.strategyName, legs: trade.legs?.length });
     res.json({ status: 'success', data: trade });
   } catch (error) {
     console.error('Options trade create error:', error.message);
@@ -354,6 +426,7 @@ router.put('/trades/:id', async (req, res) => {
 
     const trade = await OptionsTrade.findByIdAndUpdate(id, updates, { new: true });
     if (!trade) return res.status(404).json({ status: 'error', message: 'Trade not found' });
+    if (updates.status === 'closed') logActivity('options_trade', 'closed', { underlying: trade.underlying, strategy: trade.strategyName, pnl: trade.exitPnl });
     res.json({ status: 'success', data: trade });
   } catch (error) {
     console.error('Options trade update error:', error.message);
@@ -551,6 +624,188 @@ router.delete('/realTrades/:id', async (req, res) => {
     res.json({ status: 'success', message: 'Trade deleted' });
   } catch (error) {
     console.error('Real trade delete error:', error.message);
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// OPTIONS PORTFOLIOS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const OptionsPortfolio = require('../models/OptionsPortfolio');
+
+// GET /api/options/portfolios — list all portfolios with trade counts & P&L summary
+router.get('/portfolios', async (req, res) => {
+  try {
+    const portfolios = await OptionsPortfolio.find({ isActive: true })
+      .populate('trades')
+      .sort({ createdAt: -1 });
+
+    const data = portfolios.map(p => {
+      const trades = p.trades || [];
+      const openTrades = trades.filter(t => t.status === 'open');
+      const closedTrades = trades.filter(t => t.status === 'closed');
+      const totalPnl = closedTrades.reduce((s, t) => s + (t.exitPnl || 0), 0);
+      const wins = closedTrades.filter(t => (t.exitPnl || 0) > 0).length;
+      return {
+        _id: p._id,
+        name: p.name,
+        description: p.description,
+        color: p.color,
+        tradeCount: trades.length,
+        openCount: openTrades.length,
+        closedCount: closedTrades.length,
+        totalPnl,
+        wins,
+        winRate: closedTrades.length > 0 ? Math.round((wins / closedTrades.length) * 100) : 0,
+        trades: trades.map(t => t._id),
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+      };
+    });
+
+    res.json({ status: 'success', data });
+  } catch (error) {
+    console.error('List portfolios error:', error.message);
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+// GET /api/options/portfolios/:id — single portfolio with full trades
+router.get('/portfolios/:id', async (req, res) => {
+  try {
+    const portfolio = await OptionsPortfolio.findById(req.params.id).populate('trades');
+    if (!portfolio) return res.status(404).json({ status: 'error', message: 'Portfolio not found' });
+    res.json({ status: 'success', data: portfolio });
+  } catch (error) {
+    console.error('Get portfolio error:', error.message);
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+// POST /api/options/portfolios — create new portfolio
+router.post('/portfolios', async (req, res) => {
+  try {
+    const { name, description, color } = req.body;
+    if (!name?.trim()) return res.status(400).json({ status: 'error', message: 'Name is required' });
+    const portfolio = await OptionsPortfolio.create({ name: name.trim(), description, color });
+    res.json({ status: 'success', data: portfolio });
+  } catch (error) {
+    console.error('Create portfolio error:', error.message);
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+// PUT /api/options/portfolios/:id — update portfolio name/desc/color
+router.put('/portfolios/:id', async (req, res) => {
+  try {
+    const { name, description, color } = req.body;
+    const portfolio = await OptionsPortfolio.findByIdAndUpdate(
+      req.params.id,
+      { ...(name && { name: name.trim() }), ...(description !== undefined && { description }), ...(color && { color }) },
+      { new: true }
+    );
+    if (!portfolio) return res.status(404).json({ status: 'error', message: 'Portfolio not found' });
+    res.json({ status: 'success', data: portfolio });
+  } catch (error) {
+    console.error('Update portfolio error:', error.message);
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+// DELETE /api/options/portfolios/:id — delete portfolio (trades remain, just unlinked)
+router.delete('/portfolios/:id', async (req, res) => {
+  try {
+    const portfolio = await OptionsPortfolio.findByIdAndDelete(req.params.id);
+    if (!portfolio) return res.status(404).json({ status: 'error', message: 'Portfolio not found' });
+    res.json({ status: 'success', message: 'Portfolio deleted' });
+  } catch (error) {
+    console.error('Delete portfolio error:', error.message);
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+// POST /api/options/portfolios/:id/add-trade — add a trade to portfolio
+router.post('/portfolios/:id/add-trade', async (req, res) => {
+  try {
+    const { tradeId } = req.body;
+    if (!tradeId) return res.status(400).json({ status: 'error', message: 'tradeId is required' });
+    const portfolio = await OptionsPortfolio.findById(req.params.id);
+    if (!portfolio) return res.status(404).json({ status: 'error', message: 'Portfolio not found' });
+    if (!portfolio.trades.includes(tradeId)) {
+      portfolio.trades.push(tradeId);
+      await portfolio.save();
+    }
+    res.json({ status: 'success', data: portfolio });
+  } catch (error) {
+    console.error('Add trade to portfolio error:', error.message);
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+// POST /api/options/portfolios/:id/remove-trade — remove a trade from portfolio
+router.post('/portfolios/:id/remove-trade', async (req, res) => {
+  try {
+    const { tradeId } = req.body;
+    const portfolio = await OptionsPortfolio.findById(req.params.id);
+    if (!portfolio) return res.status(404).json({ status: 'error', message: 'Portfolio not found' });
+    portfolio.trades = portfolio.trades.filter(t => t.toString() !== tradeId);
+    await portfolio.save();
+    res.json({ status: 'success', data: portfolio });
+  } catch (error) {
+    console.error('Remove trade from portfolio error:', error.message);
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+// GET /api/options/portfolios/:id/pnl?period=daily|weekly|monthly|quarterly|yearly|all
+router.get('/portfolios/:id/pnl', async (req, res) => {
+  try {
+    const { period } = req.query;
+    const portfolio = await OptionsPortfolio.findById(req.params.id).populate('trades');
+    if (!portfolio) return res.status(404).json({ status: 'error', message: 'Portfolio not found' });
+
+    const closedTrades = (portfolio.trades || []).filter(t => t.status === 'closed' && t.closedAt);
+
+    // Filter by period
+    const now = new Date();
+    let cutoff = null;
+    if (period === 'daily') cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    else if (period === 'weekly') cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    else if (period === 'monthly') cutoff = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+    else if (period === 'quarterly') cutoff = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+    else if (period === 'half-yearly') cutoff = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+    else if (period === 'yearly') cutoff = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+
+    const filtered = cutoff
+      ? closedTrades.filter(t => new Date(t.closedAt) >= cutoff)
+      : closedTrades;
+
+    const totalPnl = filtered.reduce((s, t) => s + (t.exitPnl || 0), 0);
+    const wins = filtered.filter(t => (t.exitPnl || 0) > 0).length;
+    const losses = filtered.filter(t => (t.exitPnl || 0) < 0).length;
+
+    res.json({
+      status: 'success',
+      data: {
+        period: period || 'all',
+        totalPnl,
+        tradeCount: filtered.length,
+        wins,
+        losses,
+        winRate: filtered.length > 0 ? Math.round((wins / filtered.length) * 100) : 0,
+        trades: filtered.map(t => ({
+          _id: t._id,
+          strategyName: t.strategyName,
+          underlying: t.underlying,
+          exitPnl: t.exitPnl,
+          closedAt: t.closedAt,
+          createdAt: t.createdAt,
+        })),
+      },
+    });
+  } catch (error) {
+    console.error('Portfolio PnL error:', error.message);
     res.status(500).json({ status: 'error', message: error.message });
   }
 });

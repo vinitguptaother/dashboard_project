@@ -5,7 +5,7 @@ import LeftPanel from './LeftPanel';
 import RightPanel from './RightPanel';
 import ChainModal from './ChainModal';
 import ChargesModal from './ChargesModal';
-import { useOptionsData, useStrategyBuilder, useTrades, useLivePnL } from './hooks';
+import { useOptionsData, useStrategyBuilder, useTrades, useLivePnL, usePortfolios } from './hooks';
 import { BACKEND_URL } from './constants';
 import { MarginData, PayoffPoint } from './types';
 import { useMarketStatus } from '../../hooks/useMarketStatus';
@@ -25,7 +25,7 @@ export default function OptionsTab() {
 
   // Strategy builder hook
   const {
-    legs, addLeg, removeLeg, toggleLegSide,
+    legs, setLegs, addLeg, removeLeg, toggleLegSide,
     updateLegQty, updateLegStrike, applyPreset,
     shiftStrikes, resetPrices, clearAll,
     payoff, payoffLoading, strategyName,
@@ -40,6 +40,12 @@ export default function OptionsTab() {
 
   // Live P&L
   const livePnL = useLivePnL(trades, chain);
+
+  // Portfolios
+  const {
+    portfolios, createPortfolio, deletePortfolio,
+    addTradeToPortfolio, removeTradeFromPortfolio, fetchPortfolioPnL,
+  } = usePortfolios();
 
   // Margin + AI state
   const [margin, setMargin] = useState<MarginData | null>(null);
@@ -132,6 +138,27 @@ export default function OptionsTab() {
     finally { setAiLoading(false); }
   }, [legs, payoff, underlying, strategyName, spotPrice]);
 
+  // Load a trade's legs into the strategy builder for viewing
+  const loadTradeToBuilder = useCallback((trade: any) => {
+    if (!trade.legs?.length) return;
+    let nextId = 1;
+    const newLegs = trade.legs.map((l: any) => ({
+      id: 'loaded-' + (nextId++),
+      type: l.type,
+      strike: l.strike,
+      premium: l.premium ?? 0,
+      qty: l.qty ?? 1,
+      side: l.side,
+      lotSize: l.lotSize ?? lotSize,
+      iv: l.iv ?? 0.15,
+      delta: l.delta ?? 0,
+      theta: l.theta ?? 0,
+      gamma: l.gamma ?? 0,
+      vega: l.vega ?? 0,
+    }));
+    setLegs(newLegs);
+  }, [lotSize, setLegs]);
+
   // Trade All action
   const handleTradeAll = useCallback(async () => {
     if (!payoff || !legs.length) return;
@@ -150,6 +177,21 @@ export default function OptionsTab() {
       if (!ok) return;
     }
 
+    // Ask which portfolio to add to (if any exist)
+    let targetPortfolioId: string | null = null;
+    if (portfolios.length > 0) {
+      const choices = portfolios.map((p, i) => `${i + 1}. ${p.name}`).join('\n');
+      const answer = window.prompt(
+        `Add to a portfolio?\n\n${choices}\n\nEnter number (or leave blank to skip):`,
+      );
+      if (answer?.trim()) {
+        const idx = parseInt(answer.trim()) - 1;
+        if (idx >= 0 && idx < portfolios.length) {
+          targetPortfolioId = portfolios[idx]._id;
+        }
+      }
+    }
+
     const result = await paperTrade({
       underlying,
       expiry: selectedExpiry,
@@ -163,10 +205,10 @@ export default function OptionsTab() {
       breakevens: payoff.breakevens,
       pop: payoff.pop,
     });
-    if (result) {
-      // Trade saved — could show a toast or switch to positions
+    if (result && targetPortfolioId) {
+      await addTradeToPortfolio(targetPortfolioId, result._id);
     }
-  }, [payoff, legs, underlying, selectedExpiry, strategyName, spotPrice, multiplier, paperTrade, marketStatus]);
+  }, [payoff, legs, underlying, selectedExpiry, strategyName, spotPrice, multiplier, paperTrade, marketStatus, portfolios, addTradeToPortfolio]);
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden bg-white dark:bg-gray-900">
@@ -226,6 +268,12 @@ export default function OptionsTab() {
           onCloseTrade={closeTrade}
           onDeleteTrade={deleteTrade}
           chainLoaded={!!chain}
+          onLoadTrade={loadTradeToBuilder}
+          portfolios={portfolios}
+          onCreatePortfolio={createPortfolio}
+          onDeletePortfolio={deletePortfolio}
+          onFetchPortfolioPnL={fetchPortfolioPnL}
+          onRemoveTradeFromPortfolio={removeTradeFromPortfolio}
         />
       </div>
 

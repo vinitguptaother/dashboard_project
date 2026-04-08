@@ -138,6 +138,7 @@ async function runQueryAndScrape(query, options = {}) {
   let page = 1;
   let hasMore = true;
   let totalResults = null;
+  let consecutiveEmptyPages = 0;
   const latestParam = options.onlyLatestResults ? '&latest=on' : '';
 
   while (hasMore) {
@@ -218,9 +219,20 @@ async function runQueryAndScrape(query, options = {}) {
 
       if (!seen.has(companyName.toUpperCase())) {
         seen.add(companyName.toUpperCase());
+
+        // If symbol is purely numeric (BSE code like 514330), use company name as symbol
+        // since Upstox instruments use NSE trading symbols, not BSE codes
+        let finalSymbol = symbol || companyName.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const isBSECode = /^\d+$/.test(finalSymbol);
+        if (isBSECode) {
+          // Use company name cleaned up as symbol (matches NSE naming convention)
+          finalSymbol = companyName.toUpperCase().replace(/\s*(LIMITED|LTD|INDUSTRIES|CORPORATION)\.?\s*$/i, '').trim().replace(/[^A-Z0-9&]/g, '');
+        }
+
         allCompanies.push({
           name: companyName,
-          symbol: symbol || companyName.toUpperCase().replace(/[^A-Z0-9]/g, ''),
+          symbol: finalSymbol,
+          bseCode: isBSECode ? symbol : undefined,
         });
         rowsOnPage++;
       }
@@ -235,11 +247,24 @@ async function runQueryAndScrape(query, options = {}) {
       if (pm) maxPage = Math.max(maxPage, parseInt(pm[1]));
     });
 
-    hasMore = maxPage > page && rowsOnPage > 0;
+    // Track consecutive empty pages to avoid infinite loops on broken queries
+    if (rowsOnPage === 0) {
+      consecutiveEmptyPages++;
+    } else {
+      consecutiveEmptyPages = 0;
+    }
+
+    hasMore = maxPage > page;
     page++;
 
     if (page > 20) break; // safety cap: 1000 companies
+    if (consecutiveEmptyPages >= 3) break; // stop if 3 pages in a row had zero new rows
     if (hasMore) await new Promise(r => setTimeout(r, 500)); // polite delay
+  }
+
+  // Warn if we got fewer companies than screener.in reported
+  if (totalResults && allCompanies.length < totalResults) {
+    console.warn(`⚠️ Screener fetch: expected ${totalResults} results but got ${allCompanies.length}. Some may have been lost.`);
   }
 
   return { companies: allCompanies, totalResults, pages: page - 1 };
@@ -257,9 +282,136 @@ async function testAndSaveCredentials(email, password) {
   return { success: true, message: 'Login successful. Credentials saved.' };
 }
 
+/**
+ * Fetch fundamental data for a single company from Screener.in.
+ * Uses the company page's #top-ratios section which contains exact, structured data.
+ * The selectors (#top-ratios li → .name + .number) are Screener.in's core data display
+ * and have been stable for years. If they change, the function gracefully returns null.
+ * @param {string} symbol - NSE symbol (e.g. "RELIANCE", "SHAILY")
+ * @returns {object|null} fundamentals object or null if failed
+ */
+async function fetchCompanyFundamentals(symbol) {
+  const creds = loadCredentials();
+  if (!creds) return null;
+
+  try {
+    const session = await getSession(creds.email, creds.password);
+
+    // Fetch company page HTML
+    let html = null;
+    try {
+      const resp = await session.get(`/company/${symbol}/`);
+      html = resp.data;
+    } catch (err) {
+      // Symbol might not exist on Screener.in
+      if (err.response && err.response.status === 404) {
+        console.log(`Screener.in: /company/${symbol}/ not found (404)`);
+      }
+      return null;
+    }
+
+    if (!html || typeof html !== 'string') return null;
+
+    const $ = cheerio.load(html);
+    const result = {};
+
+    // Extract company name from h1
+    const companyName = $('h1').first().text().trim();
+    if (companyName) result._companyName = companyName;
+
+    // Extract sector/industry from company info section
+    const infoText = $('.company-info, .sub').text();
+    const sectorMatch = infoText.match(/Sector:\s*([^\n,]+)/i);
+    const industryMatch = infoText.match(/Industry:\s*([^\n,]+)/i);
+    if (sectorMatch) result._sector = sectorMatch[1].trim();
+    if (industryMatch) result._industry = industryMatch[1].trim();
+
+    // Map Screener.in ratio label names to our internal keys
+    const labelMap = {
+      'Market Cap': 'Market_Cap_Cr',
+      'Current Price': 'Current_Price',
+      'Stock P/E': 'PE_Ratio',
+      'Book Value': 'Book_Value',
+      'Dividend Yield': 'Dividend_Yield',
+      'ROCE': 'ROCE',
+      'ROE': 'ROE',
+      'Face Value': 'Face_Value',
+      'Debt to equity': 'Debt_Equity',
+      'Price to book value': 'PB_Ratio',
+      'EPS': 'EPS',
+      'Promoter holding': 'Promoter_Holding',
+      'FII holding': 'FII_Holding',
+      'DII holding': 'DII_Holding',
+      'Pledged percentage': 'Pledged_Pct',
+      'Interest Coverage Ratio': 'Interest_Coverage',
+      'Current Ratio': 'Current_Ratio',
+      'Operating Profit Margin': 'Operating_Margin',
+      'Net Profit Margin': 'Profit_Margin',
+    };
+
+    // Primary extraction: #top-ratios li → .name + .number
+    // This is the most reliable selector — it's Screener.in's main ratio display
+    $('#top-ratios li').each((_, el) => {
+      const name = $(el).find('.name').text().trim();
+      const numText = $(el).find('.number').text().trim().replace(/,/g, '');
+      if (!name || !numText) return;
+
+      const parsed = parseFloat(numText);
+      if (isNaN(parsed)) return;
+
+      const ourKey = labelMap[name];
+      if (ourKey) {
+        result[ourKey] = parsed;
+      }
+    });
+
+    // Secondary: try broader li selectors if #top-ratios didn't yield enough
+    if (Object.keys(result).filter(k => !k.startsWith('_')).length < 4) {
+      $('li').each((_, el) => {
+        const name = $(el).find('.name').text().trim();
+        const numText = $(el).find('.number').text().trim().replace(/,/g, '');
+        if (!name || !numText) return;
+
+        const parsed = parseFloat(numText);
+        if (isNaN(parsed)) return;
+
+        const ourKey = labelMap[name];
+        if (ourKey && !result[ourKey]) {
+          result[ourKey] = parsed;
+        }
+      });
+    }
+
+    // Extract shareholding from dedicated section if not in top-ratios
+    if (!result.Promoter_Holding) {
+      $('th, td').each((_, el) => {
+        const text = $(el).text().trim();
+        if (text === 'Promoters') {
+          const nextVal = $(el).nextAll('td').first().text().trim().replace(/,/g, '');
+          const v = parseFloat(nextVal);
+          if (!isNaN(v)) result.Promoter_Holding = v;
+        }
+      });
+    }
+
+    const dataKeys = Object.keys(result).filter(k => !k.startsWith('_'));
+    if (dataKeys.length >= 2) {
+      console.log(`✅ Screener.in fundamentals: ${symbol} → ${dataKeys.length} fields extracted`);
+      return result;
+    }
+
+    console.log(`⚠️ Screener.in: ${symbol} → only ${dataKeys.length} fields, returning null`);
+    return null;
+  } catch (err) {
+    console.warn(`⚠️ Screener fundamentals failed for ${symbol}:`, err.message);
+    return null;
+  }
+}
+
 module.exports = {
   runQueryAndScrape,
   testAndSaveCredentials,
+  fetchCompanyFundamentals,
   loadCredentials,
   hasCredentials,
   clearCredentials,

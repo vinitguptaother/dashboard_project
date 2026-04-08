@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { BACKEND_URL, STRATEGY_PRESETS, STRIKES_AROUND_ATM } from './constants';
-import { OptionChainData, StrategyLeg, PayoffResult, MarginData, OptionsMockTrade, TradeStats, RealTrade, RealTradeStats, Strike } from './types';
+import { OptionChainData, StrategyLeg, PayoffResult, MarginData, OptionsMockTrade, TradeStats, RealTrade, RealTradeStats, Strike, OptionsPortfolio, PortfolioPnL } from './types';
 import { nextLegId, estimateSpotFromChain, getDTE, getStrikeStep, guessStrategyName } from './utils';
 
 // ─── useOptionsData: chain, expiries, spot price ──────────────────────────────
@@ -72,7 +72,7 @@ export function useOptionsData(underlying: string) {
       if (cancelled) return;
       interval = setInterval(() => {
         if (getMarketState(new Date(), holidays).isOpen) fetchChain();
-      }, 30000);
+      }, 10000);
     })();
     return () => { cancelled = true; if (interval) clearInterval(interval); };
   }, [fetchChain, selectedExpiry]);
@@ -153,6 +153,7 @@ export function useStrategyBuilder(
       type, strike: strike.strike, premium: opt.ltp,
       qty: 1, side, lotSize,
       iv: opt.iv, delta: opt.delta, theta: opt.theta, gamma: opt.gamma, vega: opt.vega,
+      instrumentKey: opt.instrumentKey || '',
     };
     setLegs(prev => [...prev, newLeg]);
   }
@@ -385,18 +386,85 @@ export function useTrades() {
   };
 }
 
-// ─── useLivePnL: live P&L for open trades ─────────────────────────────────────
+// ─── useLivePnL: live P&L via independent polling (not chain-dependent) ──────
 
 export function useLivePnL(openTrades: OptionsMockTrade[], chain: OptionChainData | null) {
-  const livePnL = useMemo(() => {
-    if (!chain || !openTrades.length) return {};
-    const result: Record<string, { totalPnl: number; legs: { instrument: string; entryPremium: number; currentLtp: number; pnl: number }[] }> = {};
+  const [livePnL, setLivePnL] = useState<Record<string, { totalPnl: number; spotPrice?: number; legs: { instrument: string; entryPremium: number; currentLtp: number; pnl: number }[] }>>({});
+  const [lastPnLUpdate, setLastPnLUpdate] = useState<Date | null>(null);
 
+  const hasOpenTrades = openTrades.some(t => t.status === 'open');
+
+  // Poll backend every 10s for live position LTPs
+  useEffect(() => {
+    if (!hasOpenTrades) { setLivePnL({}); return; }
+
+    let cancelled = false;
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    async function fetchPositionLTP() {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/options/positions-ltp`);
+        const json = await res.json();
+        if (!cancelled && json.status === 'success' && json.data) {
+          // Transform backend response to match UI format
+          const result: typeof livePnL = {};
+          for (const [tradeId, data] of Object.entries(json.data as Record<string, any>)) {
+            result[tradeId] = {
+              totalPnl: data.totalPnl,
+              spotPrice: data.spotPrice,
+              legs: data.legs.map((l: any) => ({
+                instrument: `${l.side[0]} ${l.strike} ${l.type}`,
+                entryPremium: l.entryPremium,
+                currentLtp: l.currentLtp,
+                pnl: l.pnl,
+              })),
+            };
+          }
+          setLivePnL(result);
+          setLastPnLUpdate(new Date());
+        }
+      } catch (e) { /* silent — will retry next interval */ }
+    }
+
+    // Fetch immediately, then every 10s during market hours
+    fetchPositionLTP();
+
+    (async () => {
+      let getMarketState: any;
+      let holidays: string[] = [];
+      try {
+        const mod = await import('../../lib/marketHours');
+        getMarketState = mod.getMarketState;
+        const hRes = await fetch(`${BACKEND_URL}/api/market-status/holidays`).then(r => r.json()).catch(() => null);
+        holidays = hRes?.data?.holidays || [];
+      } catch { }
+
+      if (cancelled) return;
+
+      interval = setInterval(() => {
+        // Always fetch if market open; also fetch once after close for final prices
+        if (getMarketState) {
+          const state = getMarketState(new Date(), holidays);
+          if (state.isOpen) fetchPositionLTP();
+        } else {
+          fetchPositionLTP(); // no market hours util → always fetch
+        }
+      }, 10000); // 10-second refresh
+    })();
+
+    return () => { cancelled = true; if (interval) clearInterval(interval); };
+  }, [hasOpenTrades]);
+
+  // Fallback: also compute from chain data when available (for immediate updates)
+  const mergedPnL = useMemo(() => {
+    if (Object.keys(livePnL).length > 0) return livePnL;
+    // Fallback to chain-based calculation if polling hasn't returned yet
+    if (!chain || !openTrades.length) return {};
+    const result: typeof livePnL = {};
     for (const trade of openTrades) {
       if (trade.status !== 'open') continue;
       let totalPnl = 0;
       const legPnLs: { instrument: string; entryPremium: number; currentLtp: number; pnl: number }[] = [];
-
       for (const leg of trade.legs) {
         const strikeData = chain.strikes.find(s => s.strike === leg.strike);
         if (!strikeData) continue;
@@ -404,19 +472,102 @@ export function useLivePnL(openTrades: OptionsMockTrade[], chain: OptionChainDat
         const direction = leg.side === 'SELL' ? -1 : 1;
         const pnl = direction * (currentLtp - leg.premium) * leg.qty * (leg.lotSize || 1);
         totalPnl += pnl;
-        legPnLs.push({
-          instrument: `${leg.side[0]} ${trade.expiry?.slice(5)} ${leg.strike} ${leg.type}`,
-          entryPremium: leg.premium,
-          currentLtp,
-          pnl,
-        });
+        legPnLs.push({ instrument: `${leg.side[0]} ${leg.strike} ${leg.type}`, entryPremium: leg.premium, currentLtp, pnl });
       }
-
       result[trade._id] = { totalPnl, legs: legPnLs };
     }
-
     return result;
-  }, [openTrades, chain]);
+  }, [livePnL, openTrades, chain]);
 
-  return livePnL;
+  return mergedPnL;
+}
+
+// ─── usePortfolios: CRUD for options portfolios ──────────────────────────────
+
+export function usePortfolios() {
+  const [portfolios, setPortfolios] = useState<OptionsPortfolio[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchPortfolios = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(`${BACKEND_URL}/api/options/portfolios`);
+      const json = await res.json();
+      if (json.status === 'success') setPortfolios(json.data);
+    } catch (e) { console.error('Fetch portfolios error:', e); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchPortfolios(); }, [fetchPortfolios]);
+
+  const createPortfolio = useCallback(async (name: string, description?: string, color?: string) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/options/portfolios`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, description, color }),
+      });
+      const json = await res.json();
+      if (json.status === 'success') { fetchPortfolios(); return json.data; }
+    } catch (e) { console.error('Create portfolio error:', e); }
+    return null;
+  }, [fetchPortfolios]);
+
+  const deletePortfolio = useCallback(async (id: string) => {
+    try {
+      await fetch(`${BACKEND_URL}/api/options/portfolios/${id}`, { method: 'DELETE' });
+      fetchPortfolios();
+    } catch (e) { console.error('Delete portfolio error:', e); }
+  }, [fetchPortfolios]);
+
+  const updatePortfolio = useCallback(async (id: string, data: { name?: string; description?: string; color?: string }) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/options/portfolios/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const json = await res.json();
+      if (json.status === 'success') fetchPortfolios();
+    } catch (e) { console.error('Update portfolio error:', e); }
+  }, [fetchPortfolios]);
+
+  const addTradeToPortfolio = useCallback(async (portfolioId: string, tradeId: string) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/options/portfolios/${portfolioId}/add-trade`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tradeId }),
+      });
+      const json = await res.json();
+      if (json.status === 'success') fetchPortfolios();
+    } catch (e) { console.error('Add trade to portfolio error:', e); }
+  }, [fetchPortfolios]);
+
+  const removeTradeFromPortfolio = useCallback(async (portfolioId: string, tradeId: string) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/options/portfolios/${portfolioId}/remove-trade`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tradeId }),
+      });
+      const json = await res.json();
+      if (json.status === 'success') fetchPortfolios();
+    } catch (e) { console.error('Remove trade from portfolio error:', e); }
+  }, [fetchPortfolios]);
+
+  const fetchPortfolioPnL = useCallback(async (id: string, period: string): Promise<PortfolioPnL | null> => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/options/portfolios/${id}/pnl?period=${period}`);
+      const json = await res.json();
+      if (json.status === 'success') return json.data;
+    } catch (e) { console.error('Fetch portfolio PnL error:', e); }
+    return null;
+  }, []);
+
+  return {
+    portfolios, loading, fetchPortfolios,
+    createPortfolio, deletePortfolio, updatePortfolio,
+    addTradeToPortfolio, removeTradeFromPortfolio, fetchPortfolioPnL,
+  };
 }

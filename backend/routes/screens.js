@@ -8,6 +8,7 @@ const { upstoxService } = require('../../services/upstoxService');
 const { apiLogger } = require('../middleware/logger');
 const aiService = require('../services/aiService');
 const trackAPI = require('../utils/trackAPI');
+const logActivity = require('../utils/logActivity');
 
 // ─────────────────────────────────────────────
 // AI Fundamental Ranking via Perplexity
@@ -34,7 +35,7 @@ async function callPerplexityForRanking(apiKey, prompt) {
             { role: 'user', content: prompt },
           ],
           temperature: 0.2,
-          max_tokens: 3000,
+          max_tokens: 5000,
         },
         {
           headers: {
@@ -83,13 +84,29 @@ async function getAIFundamentalScores(symbols) {
   if (!apiKey || symbols.length === 0) return new Map();
 
   try {
-    const symbolList = symbols.slice(0, 40).join(', '); // Cap at 40 to avoid token limits
-
-    // Fetch market context (cached 10 min — adds NIFTY trend, VIX, regime)
+    // Fetch market context once (cached 10 min — adds NIFTY trend, VIX, regime)
     let marketContext = '';
     try { marketContext = await aiService.getMarketContext(); } catch (e) { /* non-critical */ }
 
-    const prompt = `${marketContext}
+    // Batch symbols into chunks of 25 to avoid token truncation
+    const BATCH_SIZE = 25;
+    const batches = [];
+    for (let i = 0; i < symbols.length; i += BATCH_SIZE) {
+      batches.push(symbols.slice(i, i + BATCH_SIZE));
+    }
+
+    apiLogger.info('Screens API', 'AI fundamental ranking start', {
+      stockCount: symbols.length,
+      batches: batches.length,
+    });
+
+    const scoreMap = new Map();
+
+    for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+      const batch = batches[batchIdx];
+      const symbolList = batch.join(', ');
+
+      const prompt = `${marketContext}
 Score these Indian stocks (NSE/BSE) on FUNDAMENTALS for swing trading and long-term investing.
 
 STOCKS: ${symbolList}
@@ -109,31 +126,38 @@ Return ONLY this JSON array (no other text):
   ...
 ]
 
-IMPORTANT: Use the EXACT stock names I gave you. Score ALL stocks. If you can't find data for a stock, give it a conservative score of 10-14 with reason "Limited data".`;
+IMPORTANT: Use the EXACT stock names I gave you. Score ALL ${batch.length} stocks. If you can't find data for a stock, give it a conservative score of 10-14 with reason "Limited data".`;
 
-    apiLogger.info('Screens API', 'AI fundamental ranking start', { stockCount: symbols.length });
+      try {
+        const rawResponse = await callPerplexityForRanking(apiKey, prompt);
+        const parsed = extractJSON(rawResponse);
 
-    const rawResponse = await callPerplexityForRanking(apiKey, prompt);
-    const parsed = extractJSON(rawResponse);
-
-    if (!Array.isArray(parsed)) {
-      apiLogger.warn('Screens API', 'AI ranking returned non-array', { raw: rawResponse?.slice(0, 200) });
-      return new Map();
-    }
-
-    const scoreMap = new Map();
-    for (const item of parsed) {
-      if (item.symbol && typeof item.aiScore === 'number') {
-        scoreMap.set(item.symbol.toUpperCase(), {
-          aiScore: Math.min(24, Math.max(0, item.aiScore)),
-          health: item.health || 0,
-          growth: item.growth || 0,
-          valuation: item.valuation || 0,
-          technical: item.technical || 0,
-          orderFlow: item.orderFlow || item.momentum || 0, // backward compat with old 'momentum' field
-          institutional: item.institutional || 0,
-          reason: item.reason || '',
-        });
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (item.symbol && typeof item.aiScore === 'number') {
+              scoreMap.set(item.symbol.toUpperCase(), {
+                aiScore: Math.min(24, Math.max(0, item.aiScore)),
+                health: item.health || 0,
+                growth: item.growth || 0,
+                valuation: item.valuation || 0,
+                technical: item.technical || 0,
+                orderFlow: item.orderFlow || item.momentum || 0,
+                institutional: item.institutional || 0,
+                reason: item.reason || '',
+              });
+            }
+          }
+          apiLogger.info('Screens API', `AI ranking batch ${batchIdx + 1}/${batches.length} done`, {
+            batchSize: batch.length, scored: scoreMap.size,
+          });
+        } else {
+          apiLogger.warn('Screens API', `AI ranking batch ${batchIdx + 1} returned non-array`, {
+            raw: rawResponse?.slice(0, 200),
+          });
+        }
+      } catch (batchErr) {
+        apiLogger.warn('Screens API', `AI ranking batch ${batchIdx + 1} failed, continuing`, batchErr.message);
+        // Continue with remaining batches — partial scoring is better than none
       }
     }
 
@@ -886,6 +910,111 @@ router.delete('/batch/:batchId', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════
+// SCREENER.IN AUTO-FETCH (v2 — query-based, credentials saved once)
+// Must be ABOVE /:id catch-all route to avoid "screener-status" matching /:id
+// ═══════════════════════════════════════════════════════════════════════
+const {
+  testAndSaveCredentials,
+  runQueryAndScrape,
+  hasCredentials,
+  clearCredentials,
+  loadCredentials,
+} = require('../services/screenerFetchService');
+
+/**
+ * @route   GET /api/screens/screener-status
+ * @desc    Check if screener.in credentials are saved
+ */
+router.get('/screener-status', (req, res) => {
+  const creds = loadCredentials();
+  res.json({
+    status: 'success',
+    data: {
+      connected: !!creds,
+      email: creds?.email || null,
+    },
+  });
+});
+
+/**
+ * @route   POST /api/screens/screener-login
+ * @desc    Test + save screener.in credentials (one-time setup)
+ */
+router.post('/screener-login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ status: 'error', message: 'Email and password required' });
+    }
+    const result = await testAndSaveCredentials(email, password);
+    res.json({ status: 'success', data: result });
+  } catch (error) {
+    apiLogger.error('Screens API', 'screener-login', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to login to screener.in',
+    });
+  }
+});
+
+/**
+ * @route   POST /api/screens/screener-logout
+ * @desc    Clear saved screener.in credentials
+ */
+router.post('/screener-logout', (req, res) => {
+  clearCredentials();
+  res.json({ status: 'success', message: 'Credentials cleared' });
+});
+
+/**
+ * @route   POST /api/screens/screener-fetch
+ * @desc    Run a screener.in query and return companies
+ * @body    { query, screenName }
+ */
+router.post('/screener-fetch', async (req, res) => {
+  try {
+    const { query, screenName, onlyLatestResults } = req.body;
+    if (!query || !query.trim()) {
+      return res.status(400).json({ status: 'error', message: 'Screen query is required. Add a Screener Query to this screen first.' });
+    }
+    if (!hasCredentials()) {
+      return res.status(401).json({ status: 'error', message: 'No screener.in credentials saved. Click "Connect Screener.in" first.' });
+    }
+
+    const result = await runQueryAndScrape(query.trim(), { onlyLatestResults: !!onlyLatestResults });
+
+    // Dedup check
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const existingBatch = await ScreenBatch.findOne({
+      screenName: screenName || 'Auto-fetched',
+      createdAt: { $gte: today },
+    });
+
+    logActivity('screen_import', 'fetched', { screenName: screenName || 'Auto', count: result.companies.length, totalResults: result.totalResults });
+
+    res.json({
+      status: 'success',
+      data: {
+        companies: result.companies,
+        companyCount: result.companies.length,
+        totalResults: result.totalResults,
+        pages: result.pages,
+        alreadyImportedToday: !!existingBatch,
+        existingBatchId: existingBatch?._id || null,
+      },
+    });
+  } catch (error) {
+    logActivity('error', 'screener-fetch failed', { error: error.message });
+    apiLogger.error('Screens API', 'screener-fetch', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to fetch from screener.in',
+    });
+  }
+});
+
 /**
  * @route   GET /api/screens/:id
  * @desc    Get a single screen by ID
@@ -1180,9 +1309,10 @@ router.post(
         });
       }
 
-      const { symbols } = req.body;
+      const { symbols, companyNames } = req.body;
+      const nameMap = companyNames || {}; // { "SYMBOL": "Company Name" } for fallback matching
 
-      apiLogger.info('Screens API', 'rankBatch', { symbolCount: symbols.length });
+      apiLogger.info('Screens API', 'rankBatch', { symbolCount: symbols.length, hasCompanyNames: !!companyNames });
 
       // --- Step 1: Match Screener names to Instrument master (NSE cash equity) ---
       // Screener CSVs contain company names (e.g. "Coal India"), not trading symbols
@@ -1192,6 +1322,7 @@ router.post(
 
       // Build $or conditions: prefix + contains on name, prefix on symbol
       // Also try cleaned variants (strip trailing punctuation + common suffixes)
+      // Also try company names from nameMap (helps with BSE-code symbols like 514330)
       const orConditions = [];
       for (const rawName of uniqueNames) {
         const escaped = escapeRegex(rawName);
@@ -1208,6 +1339,19 @@ router.post(
           const cleanEsc = escapeRegex(cleaned);
           orConditions.push({ name: new RegExp('^' + cleanEsc, 'i') });
           orConditions.push({ name: new RegExp(cleanEsc, 'i') });
+        }
+
+        // Company name fallback (e.g. symbol="514330", companyName="IndiaMART InterMESH")
+        const compName = nameMap[rawName.toUpperCase()];
+        if (compName && compName !== rawName) {
+          const compEsc = escapeRegex(compName);
+          orConditions.push({ name: new RegExp('^' + compEsc, 'i') });
+          orConditions.push({ name: new RegExp(compEsc, 'i') });
+          // Also try first word of company name as symbol match
+          const firstWord = compName.split(/\s+/)[0];
+          if (firstWord.length >= 3) {
+            orConditions.push({ symbol: new RegExp('^' + escapeRegex(firstWord), 'i') });
+          }
         }
       }
 
@@ -1252,6 +1396,27 @@ router.post(
             candidates = matchedInstruments.filter((i) => cleanPre.test(i.name));
             if (candidates.length === 0) {
               candidates = matchedInstruments.filter((i) => cleanCon.test(i.name));
+            }
+          }
+        }
+
+        // Retry with company name from frontend (for BSE-code symbols like "514330")
+        if (candidates.length === 0) {
+          const compName = nameMap[upper];
+          if (compName) {
+            const compEsc = escapeRegex(compName);
+            const compPre = new RegExp('^' + compEsc, 'i');
+            const compCon = new RegExp(compEsc, 'i');
+            candidates = matchedInstruments.filter((i) => compPre.test(i.name));
+            if (candidates.length === 0) {
+              candidates = matchedInstruments.filter((i) => compCon.test(i.name));
+            }
+            // Try first word of company name as NSE symbol
+            if (candidates.length === 0) {
+              const firstWord = compName.split(/\s+/)[0].toUpperCase();
+              if (firstWord.length >= 3) {
+                candidates = matchedInstruments.filter((i) => i.symbol.toUpperCase() === firstWord);
+              }
             }
           }
         }
@@ -1376,7 +1541,11 @@ router.post(
         // Process with limited concurrency (max 5 parallel) to avoid Yahoo rate limits
         await parallelLimit(allNamesForYahoo, 5, async (rawName) => {
           const upper = rawName.toUpperCase();
-          const yahooSymbol = await yahooSearchSymbol(rawName);
+          // Try symbol first, then company name for BSE-code stocks
+          let yahooSymbol = await yahooSearchSymbol(rawName);
+          if (!yahooSymbol && nameMap[upper]) {
+            yahooSymbol = await yahooSearchSymbol(nameMap[upper]);
+          }
           if (!yahooSymbol) return;
           const priceData = await yahooGetPrice(yahooSymbol);
           if (priceData) {
@@ -1509,6 +1678,8 @@ router.post(
         validData: validCount,
       });
 
+      logActivity('ai_ranking', 'ranked', { count: symbols.length, matched: symbolToInstrument.size, valid: validCount });
+
       res.json({
         status: 'success',
         data: {
@@ -1516,6 +1687,7 @@ router.post(
         },
       });
     } catch (error) {
+      logActivity('error', 'rankBatch failed', { error: error.message });
       apiLogger.error('Screens API', 'rankBatch', error);
       res.status(500).json({
         status: 'error',
@@ -1525,106 +1697,5 @@ router.post(
     }
   }
 );
-
-// ═══════════════════════════════════════════════════════════════════════
-// SCREENER.IN AUTO-FETCH (v2 — query-based, credentials saved once)
-// ═══════════════════════════════════════════════════════════════════════
-const {
-  testAndSaveCredentials,
-  runQueryAndScrape,
-  hasCredentials,
-  clearCredentials,
-  loadCredentials,
-} = require('../services/screenerFetchService');
-
-/**
- * @route   GET /api/screens/screener-status
- * @desc    Check if screener.in credentials are saved
- */
-router.get('/screener-status', (req, res) => {
-  const creds = loadCredentials();
-  res.json({
-    status: 'success',
-    data: {
-      connected: !!creds,
-      email: creds?.email || null,
-    },
-  });
-});
-
-/**
- * @route   POST /api/screens/screener-login
- * @desc    Test + save screener.in credentials (one-time setup)
- */
-router.post('/screener-login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ status: 'error', message: 'Email and password required' });
-    }
-    const result = await testAndSaveCredentials(email, password);
-    res.json({ status: 'success', data: result });
-  } catch (error) {
-    apiLogger.error('Screens API', 'screener-login', error);
-    res.status(500).json({
-      status: 'error',
-      message: error.message || 'Failed to login to screener.in',
-    });
-  }
-});
-
-/**
- * @route   POST /api/screens/screener-logout
- * @desc    Clear saved screener.in credentials
- */
-router.post('/screener-logout', (req, res) => {
-  clearCredentials();
-  res.json({ status: 'success', message: 'Credentials cleared' });
-});
-
-/**
- * @route   POST /api/screens/screener-fetch
- * @desc    Run a screener.in query and return companies
- * @body    { query, screenName }
- */
-router.post('/screener-fetch', async (req, res) => {
-  try {
-    const { query, screenName, onlyLatestResults } = req.body;
-    if (!query || !query.trim()) {
-      return res.status(400).json({ status: 'error', message: 'Screen query is required. Add a Screener Query to this screen first.' });
-    }
-    if (!hasCredentials()) {
-      return res.status(401).json({ status: 'error', message: 'No screener.in credentials saved. Click "Connect Screener.in" first.' });
-    }
-
-    const result = await runQueryAndScrape(query.trim(), { onlyLatestResults: !!onlyLatestResults });
-
-    // Dedup check
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const existingBatch = await ScreenBatch.findOne({
-      screenName: screenName || 'Auto-fetched',
-      createdAt: { $gte: today },
-    });
-
-    res.json({
-      status: 'success',
-      data: {
-        companies: result.companies,
-        companyCount: result.companies.length,
-        totalResults: result.totalResults,
-        pages: result.pages,
-        alreadyImportedToday: !!existingBatch,
-        existingBatchId: existingBatch?._id || null,
-      },
-    });
-  } catch (error) {
-    apiLogger.error('Screens API', 'screener-fetch', error);
-    res.status(500).json({
-      status: 'error',
-      message: error.message || 'Failed to fetch from screener.in',
-    });
-  }
-});
 
 module.exports = router;

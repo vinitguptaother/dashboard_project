@@ -49,6 +49,7 @@ export interface StrategyLeg {
   gamma: number;
   vega: number;
   expiry?: string; // per-leg expiry for calendar spreads
+  instrumentKey?: string;
 }
 
 export interface PayoffResult {
@@ -133,13 +134,30 @@ export interface RealTradeStats {
   openTrades: number;
 }
 
-export interface DraftPortfolio {
+export interface OptionsPortfolio {
   _id: string;
   name: string;
-  strategies: OptionsMockTrade[];
-  notes: string;
+  description: string;
+  color: string;
+  tradeCount: number;
+  openCount: number;
+  closedCount: number;
+  totalPnl: number;
+  wins: number;
+  winRate: number;
+  trades: string[]; // trade IDs
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PortfolioPnL {
+  period: string;
+  totalPnl: number;
+  tradeCount: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  trades: { _id: string; strategyName: string; underlying: string; exitPnl: number; closedAt: string; createdAt: string }[];
 }
 
 export interface StrategyPreset {

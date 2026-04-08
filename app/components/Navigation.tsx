@@ -24,7 +24,8 @@ import {
   Moon,
   User,
   Menu,
-  X
+  X,
+  ClipboardList
 } from 'lucide-react';
 import RealTimeNotification from './RealTimeNotification';
 import MarketStatusBadge from './MarketStatusBadge';
@@ -167,6 +168,7 @@ const Navigation = ({ activeTab, setActiveTab }: NavigationProps) => {
     { id: 'options', label: 'Options', icon: TrendingUp, visible: true },
     { id: 'upstox', label: 'Upstox', icon: Activity, visible: false },
     { id: 'api', label: 'API Integration', icon: Zap, visible: false },
+    { id: 'activity', label: 'Activity', icon: ClipboardList, visible: true },
     { id: 'settings', label: 'Settings', icon: Settings, visible: true },
   ];
 
