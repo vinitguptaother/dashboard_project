@@ -9,7 +9,10 @@
     "lint": "next lint",
     "backend": "node backend/server.js",
     "backend:dev": "nodemon backend/server.js",
-    "db:seed": "node backend/scripts/seedDatabase.js"
+    "db:seed": "node backend/scripts/seedDatabase.js",
+    "validate": "node scripts/validate.js",
+    "validate:quick": "node scripts/validate.js --skip-build",
+    "validate:smoke": "node scripts/validate.js --smoke-only"
   },
   "dependencies": {
     "@types/node": "20.6.2",
