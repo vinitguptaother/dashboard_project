@@ -1,7 +1,0 @@
-{
-  "access_token": "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI0RUNQV0giLCJqdGkiOiI2OWQzMzgwMDk1NzcxMjE5MzAxOGY2MzQiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6dHJ1ZSwiaWF0IjoxNzc1NDUwMTEyLCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NzU1MTI4MDB9.nLEuksLdxCiNoAS5RTc2klF4U11x4NdVi5YFTFgM5I4",
-  "token_type": "Bearer",
-  "expires_at_unix": 1775512800,
-  "expires_at_iso": "2026-04-06T22:00:00.000Z",
-  "saved_at": "2026-04-06T04:35:11.403Z"
-}

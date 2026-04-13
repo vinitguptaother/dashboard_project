@@ -25,7 +25,25 @@ yarn-debug.log*
 yarn-error.log*
 
 # local env files
+.env
+.env.*
 .env*.local
+backend/.env
+backend/.env.*
+
+# secrets & tokens — NEVER commit these
+backend/upstox-token.json
+backend/data/screener-creds.json
+backend/data/
+
+# logs
+backend/logs/
+
+# backup files
+*.bak
+
+# node_modules everywhere
+**/node_modules
 
 # vercel
 .vercel
