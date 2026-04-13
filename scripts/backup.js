@@ -1,0 +1,406 @@
+#!/usr/bin/env node
+/**
+ * backup.js — Auto-backup gated by validation pipeline
+ *
+ * Two responsibilities:
+ *   1. Last-known-good snapshot: copies project to a single rolling backup dir
+ *   2. Living blueprint: regenerates docs/LIVING_BLUEPRINT.md from actual code
+ *
+ * Usage:
+ *   npm run backup              — run validate:quick first, backup if green
+ *   npm run backup -- --force   — skip validation, backup anyway (use with caution)
+ *   npm run backup -- --blueprint-only  — only regenerate the living blueprint
+ *
+ * The backup destination is: F:\Dashboard backup\last-known-good\
+ * This is ONE rolling copy, not versioned snapshots. Git is your version history.
+ */
+
+const { execSync } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+
+// ─── Config ──────────────────────────────────────────────────────────────────
+
+const ROOT = path.resolve(__dirname, '..');
+const BACKEND_DIR = path.join(ROOT, 'backend');
+const BACKUP_DIR = 'F:\\Dashboard backup\\last-known-good';
+const BLUEPRINT_PATH = path.join(ROOT, 'docs', 'LIVING_BLUEPRINT.md');
+
+// Dirs to exclude from backup
+const EXCLUDE_DIRS = ['node_modules', '.next', '.git', '.claude'];
+// Files to exclude from backup
+const EXCLUDE_FILES = ['.env', 'screener-creds.json', 'upstox-token.json'];
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const COLORS = {
+  reset: '\x1b[0m', red: '\x1b[31m', green: '\x1b[32m',
+  yellow: '\x1b[33m', cyan: '\x1b[36m', bold: '\x1b[1m', dim: '\x1b[2m',
+};
+function log(c, s, m) { console.log(`${c}${s}${COLORS.reset} ${m}`); }
+function pass(m) { log(COLORS.green, '  PASS', m); }
+function fail(m) { log(COLORS.red, '  FAIL', m); }
+function info(m) { log(COLORS.cyan, '  INFO', m); }
+function header(m) { console.log(`\n${COLORS.bold}${COLORS.cyan}── ${m} ──${COLORS.reset}`); }
+
+// ─── Step 1: Run validation pipeline ─────────────────────────────────────────
+
+function runValidation() {
+  header('Step 1: Validation gate');
+  info('Running: npm run validate:quick');
+  try {
+    execSync('node scripts/validate.js --skip-build', {
+      cwd: ROOT, stdio: 'inherit', timeout: 300000, shell: true,
+    });
+    pass('Validation pipeline GREEN');
+    return true;
+  } catch {
+    fail('Validation pipeline RED — backup aborted');
+    return false;
+  }
+}
+
+// ─── Step 2: Last-known-good snapshot ────────────────────────────────────────
+
+function createSnapshot() {
+  header('Step 2: Last-known-good snapshot');
+  info(`Target: ${BACKUP_DIR}`);
+
+  // Ensure backup dir exists
+  if (!fs.existsSync(BACKUP_DIR)) {
+    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  }
+
+  // Use PowerShell robocopy-style copy (Windows-native, handles long paths)
+  // We use robocopy via cmd because it handles excludes properly
+  const excludeDirArgs = EXCLUDE_DIRS.map(d => `"${d}"`).join(' ');
+  const excludeFileArgs = EXCLUDE_FILES.map(f => `"${f}"`).join(' ');
+
+  try {
+    // robocopy returns non-zero on success (exit codes 0-7 are OK)
+    const cmd = `robocopy "${ROOT}" "${BACKUP_DIR}" /MIR /XD ${excludeDirArgs} /XF ${excludeFileArgs} *.log *.bak /NFL /NDL /NJH /NJS /NC /NS /NP`;
+    execSync(`cmd /c "${cmd}"`, {
+      stdio: 'pipe',
+      timeout: 300000,
+    });
+  } catch (err) {
+    // robocopy exit codes 0-7 = success, 8+ = failure
+    const code = err.status || 0;
+    if (code >= 8) {
+      fail(`Robocopy failed with exit code ${code}`);
+      return false;
+    }
+  }
+
+  // Write a timestamp file so we know when this backup was taken
+  const meta = {
+    timestamp: new Date().toISOString(),
+    gitBranch: getGitInfo('rev-parse --abbrev-ref HEAD'),
+    gitCommit: getGitInfo('rev-parse --short HEAD'),
+    gitMessage: getGitInfo('log -1 --pretty=%s'),
+    pipelineStatus: 'GREEN',
+  };
+  fs.writeFileSync(
+    path.join(BACKUP_DIR, 'BACKUP_META.json'),
+    JSON.stringify(meta, null, 2)
+  );
+
+  pass(`Snapshot saved — commit ${meta.gitCommit} (${meta.gitBranch})`);
+  return true;
+}
+
+function getGitInfo(cmd) {
+  try {
+    return execSync(`git ${cmd}`, { cwd: ROOT, stdio: 'pipe' }).toString().trim();
+  } catch { return 'unknown'; }
+}
+
+// ─── Step 3: Living Blueprint ────────────────────────────────────────────────
+
+function generateBlueprint() {
+  header('Step 3: Living Blueprint');
+  info(`Target: ${BLUEPRINT_PATH}`);
+
+  // Scan actual code to build the blueprint
+  const routes = scanRoutes();
+  const models = scanModels();
+  const frontendTabs = scanFrontendTabs();
+  const envVars = scanEnvExample();
+  const smokeEndpoints = scanSmokeEndpoints();
+
+  const now = new Date().toISOString().split('T')[0];
+  const commit = getGitInfo('rev-parse --short HEAD');
+  const branch = getGitInfo('rev-parse --abbrev-ref HEAD');
+
+  const blueprint = `# LIVING BLUEPRINT — Auto-generated from code
+> **Last updated:** ${now} | **Commit:** ${commit} | **Branch:** ${branch}
+> This file is regenerated by \`npm run backup\`. Do not edit manually.
+> For the full project vision and handoff doc, see \`docs/PROJECT_BLUEPRINT.md\`.
+
+---
+
+## Architecture
+
+\`\`\`
+Frontend (Next.js 14, port 3000) ──HTTP/WS──▶ Backend (Express, port 5002) ──▶ MongoDB (localhost:27017)
+                                                    │
+                                          ┌─────────┼──────────┐
+                                          ▼         ▼          ▼
+                                      Upstox    Perplexity  Screener.in
+                                     (market)     (AI)     (fundamentals)
+\`\`\`
+
+## Frontend Tabs (${frontendTabs.length} total)
+
+| Tab ID | Component | Visible |
+|--------|-----------|---------|
+${frontendTabs.map(t => `| ${t.id} | ${t.component} | ${t.visible} |`).join('\n')}
+
+## Backend Routes (${routes.length} files)
+
+| Route File | Mount Path | Endpoints | Auth |
+|------------|------------|-----------|------|
+${routes.map(r => `| ${r.file} | ${r.mount} | ${r.endpointCount} | ${r.auth} |`).join('\n')}
+
+## Data Models (${models.length} schemas)
+
+| Model | Collection | Key Fields |
+|-------|------------|------------|
+${models.map(m => `| ${m.name} | ${m.collection || '—'} | ${m.fields} |`).join('\n')}
+
+## Environment Variables
+
+| Key | Required | Used By |
+|-----|----------|---------|
+${envVars.map(e => `| ${e.key} | ${e.required} | ${e.usedBy} |`).join('\n')}
+
+## Smoke Test Coverage (${smokeEndpoints.length} endpoints)
+
+| Endpoint | Expected Status | Subsystem |
+|----------|-----------------|-----------|
+${smokeEndpoints.map(e => `| \`${e.path}\` | ${e.status} | ${e.desc} |`).join('\n')}
+
+## Key Services
+
+| Service | Purpose |
+|---------|---------|
+| aiService.js | Perplexity API wrapper (sonar-pro model) |
+| optionsService.js | Upstox V2 option chain fetcher (8s cache) |
+| screenerFetchService.js | Screener.in login + screen scrape + fundamentals |
+| marketDataService.js | Market data with caching |
+| newsService.js | NewsAPI fetcher |
+| rssNewsService.js | RSS feed parser (ET, BS, MC, LM) |
+| websocketService.js | Socket.IO real-time updates |
+| screenScoringService.js | Hit rate calculation for screens |
+| holidayService.js | NSE holiday calendar |
+| logActivity (util) | Fire-and-forget activity logger (90-day TTL) |
+
+## Rebuild Order
+
+1. Install MongoDB locally (Community Edition, free)
+2. Clone repo, \`npm install\` in root and \`cd backend && npm install\`
+3. Create \`backend/.env\` with required keys (see env vars above)
+4. Create \`backend/data/screener-creds.json\` with Screener.in login
+5. Save Upstox token to \`backend/upstox-token.json\`
+6. Start backend: \`npm run backend\`
+7. Start frontend: \`npm run dev\`
+8. Run validation: \`npm run validate:quick\`
+
+## Staleness Check
+
+This blueprint was generated from live code scan on ${now}.
+If any of these counts change, the blueprint is stale:
+- Route files: ${routes.length}
+- Models: ${models.length}
+- Frontend tabs: ${frontendTabs.length}
+- Smoke endpoints: ${smokeEndpoints.length}
+
+To regenerate: \`npm run backup -- --blueprint-only\`
+`;
+
+  // Ensure docs dir exists
+  const docsDir = path.dirname(BLUEPRINT_PATH);
+  if (!fs.existsSync(docsDir)) fs.mkdirSync(docsDir, { recursive: true });
+
+  fs.writeFileSync(BLUEPRINT_PATH, blueprint, 'utf8');
+  pass(`Living blueprint written (${routes.length} routes, ${models.length} models, ${frontendTabs.length} tabs)`);
+  return true;
+}
+
+// ─── Scanners ────────────────────────────────────────────────────────────────
+
+function scanRoutes() {
+  const routesDir = path.join(BACKEND_DIR, 'routes');
+  const serverFile = path.join(BACKEND_DIR, 'server.js');
+  const serverContent = fs.existsSync(serverFile) ? fs.readFileSync(serverFile, 'utf8') : '';
+
+  const results = [];
+  if (!fs.existsSync(routesDir)) return results;
+
+  for (const file of fs.readdirSync(routesDir).filter(f => f.endsWith('.js') && !f.endsWith('.bak'))) {
+    const content = fs.readFileSync(path.join(routesDir, file), 'utf8');
+    const endpoints = (content.match(/router\.(get|post|put|patch|delete)\(/gi) || []).length;
+
+    // Find mount path in server.js
+    const mountMatch = serverContent.match(new RegExp(`app\\.use\\(['\`]([^'\`]+)['\`].*${file.replace('.js', '')}`));
+    const mount = mountMatch ? mountMatch[1] : '?';
+
+    // Check if auth is used
+    const hasAuth = content.includes("require('../middleware/auth')") || content.includes('auth,');
+
+    results.push({
+      file,
+      mount,
+      endpointCount: endpoints,
+      auth: hasAuth ? 'Yes' : 'No',
+    });
+  }
+  return results;
+}
+
+function scanModels() {
+  const modelsDir = path.join(BACKEND_DIR, 'models');
+  const results = [];
+  if (!fs.existsSync(modelsDir)) return results;
+
+  for (const file of fs.readdirSync(modelsDir).filter(f => f.endsWith('.js'))) {
+    const content = fs.readFileSync(path.join(modelsDir, file), 'utf8');
+    const nameMatch = content.match(/mongoose\.model\(['"]([\w]+)['"]/);
+    const fieldsMatch = content.match(/(\w+)\s*:\s*\{?\s*type\s*:/g);
+    const fields = fieldsMatch
+      ? fieldsMatch.slice(0, 5).map(f => f.split(':')[0].trim()).join(', ')
+      : '—';
+
+    results.push({
+      name: nameMatch ? nameMatch[1] : file.replace('.js', ''),
+      collection: nameMatch ? nameMatch[1].toLowerCase() + 's' : '—',
+      fields: fields + (fieldsMatch && fieldsMatch.length > 5 ? ` (+${fieldsMatch.length - 5} more)` : ''),
+    });
+  }
+  return results;
+}
+
+function scanFrontendTabs() {
+  const navFile = path.join(ROOT, 'app', 'components', 'Navigation.tsx');
+  if (!fs.existsSync(navFile)) return [];
+
+  const content = fs.readFileSync(navFile, 'utf8');
+  const results = [];
+
+  // Match tab definitions: { id: '...', label: '...', icon: ..., visible: true/false }
+  const tabRegex = /\{\s*id:\s*'([^']+)'.*?label:\s*'([^']+)'.*?visible:\s*(true|false)/gs;
+  let match;
+  while ((match = tabRegex.exec(content)) !== null) {
+    results.push({
+      id: match[1],
+      component: match[2] + 'Tab',
+      visible: match[3] === 'true' ? 'Yes' : 'Hidden',
+    });
+  }
+  return results;
+}
+
+function scanEnvExample() {
+  // Scan backend code for process.env references
+  const envUsage = {};
+
+  function scanFile(filePath, label) {
+    if (!fs.existsSync(filePath)) return;
+    const content = fs.readFileSync(filePath, 'utf8');
+    const matches = content.matchAll(/process\.env\.(\w+)/g);
+    for (const m of matches) {
+      const key = m[1];
+      if (key === 'NODE_ENV' || key === 'PATH') continue;
+      if (!envUsage[key]) envUsage[key] = new Set();
+      envUsage[key].add(label);
+    }
+  }
+
+  // Scan key backend files
+  const serverJs = path.join(BACKEND_DIR, 'server.js');
+  scanFile(serverJs, 'server.js');
+
+  for (const dir of ['routes', 'services', 'middleware', 'config']) {
+    const dirPath = path.join(BACKEND_DIR, dir);
+    if (!fs.existsSync(dirPath)) continue;
+    for (const f of fs.readdirSync(dirPath).filter(f => f.endsWith('.js'))) {
+      scanFile(path.join(dirPath, f), `${dir}/${f}`);
+    }
+  }
+
+  const required = new Set(['PORT', 'JWT_SECRET', 'PERPLEXITY_API_KEY', 'MONGODB_URI']);
+  return Object.entries(envUsage).map(([key, files]) => ({
+    key,
+    required: required.has(key) ? 'Yes' : 'No',
+    usedBy: [...files].slice(0, 3).join(', ') + (files.size > 3 ? ` (+${files.size - 3})` : ''),
+  }));
+}
+
+function scanSmokeEndpoints() {
+  const validateFile = path.join(ROOT, 'scripts', 'validate.js');
+  if (!fs.existsSync(validateFile)) return [];
+
+  const content = fs.readFileSync(validateFile, 'utf8');
+  const results = [];
+  const regex = /\['(GET|POST)',\s*'([^']+)',\s*'([^']+)',\s*\[([^\]]+)\]\]/g;
+  let match;
+  while ((match = regex.exec(content)) !== null) {
+    results.push({
+      path: `${match[1]} ${match[2]}`,
+      status: match[4],
+      desc: match[3],
+    });
+  }
+  return results;
+}
+
+// ─── Main ────────────────────────────────────────────────────────────────────
+
+async function main() {
+  const args = process.argv.slice(2);
+  const force = args.includes('--force');
+  const blueprintOnly = args.includes('--blueprint-only');
+
+  console.log(`${COLORS.bold}
+╔═══════════════════════════════════════════════╗
+║          Auto Backup System                   ║
+╚═══════════════════════════════════════════════╝${COLORS.reset}`);
+
+  if (blueprintOnly) {
+    info('--blueprint-only: skipping validation and snapshot');
+    generateBlueprint();
+    process.exit(0);
+  }
+
+  // Step 1: Validate
+  if (!force) {
+    const isGreen = runValidation();
+    if (!isGreen) {
+      console.log(`\n${COLORS.red}${COLORS.bold}  BACKUP ABORTED — fix pipeline errors first${COLORS.reset}\n`);
+      process.exit(1);
+    }
+  } else {
+    info('--force: skipping validation (use with caution)');
+  }
+
+  // Step 2: Snapshot
+  const snapshotOk = createSnapshot();
+
+  // Step 3: Blueprint
+  const blueprintOk = generateBlueprint();
+
+  // Summary
+  console.log(`\n${COLORS.bold}${COLORS.cyan}══════════════════════════════════════════════${COLORS.reset}`);
+  console.log(`${COLORS.bold}  BACKUP SUMMARY${COLORS.reset}`);
+  console.log(`${COLORS.bold}${COLORS.cyan}══════════════════════════════════════════════${COLORS.reset}\n`);
+  console.log(`  ${snapshotOk ? COLORS.green + '✓' : COLORS.red + '✗'}${COLORS.reset} Last-known-good snapshot → ${BACKUP_DIR}`);
+  console.log(`  ${blueprintOk ? COLORS.green + '✓' : COLORS.red + '✗'}${COLORS.reset} Living blueprint → docs/LIVING_BLUEPRINT.md`);
+  console.log(`  ${COLORS.dim}Timestamp: ${new Date().toISOString()}${COLORS.reset}\n`);
+
+  process.exit(snapshotOk && blueprintOk ? 0 : 1);
+}
+
+main().catch(err => {
+  console.error('Backup crashed:', err.message);
+  process.exit(1);
+});
