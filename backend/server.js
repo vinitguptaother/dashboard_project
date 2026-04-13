@@ -176,7 +176,7 @@ app.use('/api/alerts', (req, res, next) => {
   if (!req.user) req.user = { id: DEFAULT_USER_ID, email: 'vinit@dashboard.local' };
   next();
 }, alertRoutes);
-app.use('/api/settings', envConfigRoutes); // No auth for env config to allow initial setup
+app.use('/api/settings', envConfigRoutes); // Auth enforced inside routes (GET/PUT/reveal all require auth; schema is public)
 app.use('/api/config', auth, apiConfigRoutes);
 app.use('/api/user', auth, userRoutes);
 app.use('/api/ai', aiAnalysisRoutes);

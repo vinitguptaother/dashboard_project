@@ -2,8 +2,17 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { body, validationResult } = require('express-validator');
+const { auth } = require('../middleware/auth');
 
 const router = express.Router();
+
+// ─── Sensitive key patterns — mask these in GET responses ─────────────────────
+const SENSITIVE_PATTERNS = /KEY|SECRET|PASSWORD|TOKEN|CRED/i;
+function maskValue(key, value) {
+  if (!value || !SENSITIVE_PATTERNS.test(key)) return value;
+  if (value.length <= 6) return '••••••';
+  return value.slice(0, 3) + '•'.repeat(Math.min(value.length - 6, 20)) + value.slice(-3);
+}
 
 // Paths to .env files
 const ROOT_ENV_PATH = path.join(__dirname, '../../.env');
@@ -80,30 +89,35 @@ function stringifyEnvFile(envVars, originalContent = '') {
 }
 
 // @route   GET /api/config/env
-// @desc    Get environment variables (masked for security)
-// @access  Public (for initial setup)
-router.get('/env', async (req, res) => {
+// @desc    Get environment variables (sensitive values masked)
+// @access  Auth required
+router.get('/env', auth, async (req, res) => {
   try {
     const envVars = {};
-    
+
     // Read root .env file
     if (fs.existsSync(ROOT_ENV_PATH)) {
       const rootContent = fs.readFileSync(ROOT_ENV_PATH, 'utf8');
       const rootVars = parseEnvFile(rootContent);
       Object.assign(envVars, rootVars);
     }
-    
+
     // Read backend .env file
     if (fs.existsSync(BACKEND_ENV_PATH)) {
       const backendContent = fs.readFileSync(BACKEND_ENV_PATH, 'utf8');
       const backendVars = parseEnvFile(backendContent);
       Object.assign(envVars, backendVars);
     }
-    
-    // Return unmasked values directly
+
+    // Mask sensitive values before returning
+    const maskedVars = {};
+    for (const [key, value] of Object.entries(envVars)) {
+      maskedVars[key] = maskValue(key, value);
+    }
+
     res.json({
       status: 'success',
-      data: { env: envVars }
+      data: { env: maskedVars }
     });
   } catch (error) {
     console.error('Get env config error:', error);
@@ -116,8 +130,8 @@ router.get('/env', async (req, res) => {
 
 // @route   PUT /api/config/env
 // @desc    Update environment variables
-// @access  Public (for initial setup)
-router.put('/env', [
+// @access  Auth required
+router.put('/env', auth, [
   body('envVars').isObject().withMessage('envVars must be an object'),
 ], async (req, res) => {
   try {
@@ -230,8 +244,8 @@ router.put('/env', [
 
 // @route   GET /api/config/env/:key/reveal
 // @desc    Get unmasked value for a specific environment variable
-// @access  Public (for initial setup)
-router.get('/env/:key/reveal', (req, res) => {
+// @access  Auth required
+router.get('/env/:key/reveal', auth, (req, res) => {
   try {
     const { key } = req.params;
     const envVars = {};

@@ -1,18 +1,28 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
+// JWT secret — MUST be set in .env, no hardcoded fallback
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('⚠️  CRITICAL: JWT_SECRET not set in .env — auth will reject all tokens until set');
+}
+
 const auth = async (req, res, next) => {
   try {
+    if (!JWT_SECRET) {
+      return res.status(500).json({ status: 'error', message: 'Server auth not configured. Set JWT_SECRET in .env.' });
+    }
+
     const token = req.header('Authorization')?.replace('Bearer ', '');
-    
+
     if (!token) {
-      return res.status(401).json({ 
-        status: 'error', 
-        message: 'Access denied. No token provided.' 
+      return res.status(401).json({
+        status: 'error',
+        message: 'Access denied. No token provided.'
       });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+    const decoded = jwt.verify(token, JWT_SECRET);
     const user = await User.findById(decoded.userId).select('-password');
     
     if (!user || !user.isActive) {
@@ -50,7 +60,7 @@ const optionalAuth = async (req, res, next) => {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     
     if (token) {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+      const decoded = jwt.verify(token, JWT_SECRET);
       const user = await User.findById(decoded.userId).select('-password');
       
       if (user && user.isActive) {
