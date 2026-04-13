@@ -52,8 +52,7 @@ function calculateLegCharges(
 }
 
 export default function ChargesModal({ isOpen, onClose, legs, brokeragePerOrder = 20 }: Props) {
-  if (!isOpen) return null;
-
+  // Hooks MUST be called before any early return (React Rules of Hooks)
   const legCharges = useMemo(() => {
     return legs.map(leg => ({
       leg,
@@ -76,6 +75,8 @@ export default function ChargesModal({ isOpen, onClose, legs, brokeragePerOrder 
   }, [legCharges]);
 
   const fmt = (v: number) => '₹' + v.toFixed(2);
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
