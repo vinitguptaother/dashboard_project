@@ -69,8 +69,8 @@ Build a personal AI-powered trading dashboard for Vinit (Indian retail, real-mon
 - ✅ #40 Feature/Test Control Center — wired (top-level tab `control-center`)
 - ✅ #39 Broker Readiness — covered by SystemHealthPanel (inside SettingsTab)
 - ✅ **#13 Pre-Trade Gate — Phase 1 shipped.** Modal fires on Options "Trade All", records checklist via `/api/trade-checklist`. Not yet enforcing (Phase 2).
+- ✅ **#15 Daily Loss Circuit Breaker — shipped.** `/api/risk/daily-pnl` auto-locks at 100% usedPct, full-page overlay blocks UI until midnight IST OR typed "UNLOCK" override (logged).
 - 🟡 #14 Position Sizing Gate — next up
-- 🟡 #15 Daily Loss Circuit Breaker — next up
 - 🟡 #16 Post-Loss Cooldown — next up
 - 🟡 #17 Auto Journal — next up
 - 🟡 #18 Mistake Tagging — next up

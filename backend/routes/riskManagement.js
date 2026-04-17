@@ -359,12 +359,55 @@ async function calculateDailyPnL(riskSettings) {
 
 // ─────────────────────────────────────────────
 // GET /api/risk/daily-pnl
-// Returns today's realized P&L from closed trades
+// Returns today's realized P&L from closed trades.
+// ALSO auto-activates killSwitch when usedPct >= 100% (Daily Loss Circuit
+// Breaker, BOT_BLUEPRINT item #15). First caller that sees threshold breach
+// triggers the lock + logs activity.
 // ─────────────────────────────────────────────
 router.get('/daily-pnl', async (req, res) => {
   try {
     const settings = await getOrCreateSettings();
     const pnlData = await calculateDailyPnL(settings);
+
+    // Auto-trigger kill switch when daily loss limit is breached.
+    // Idempotent — only sets once; midnight cron resets.
+    let autoTriggered = false;
+    if (pnlData.usedPct >= 100 && !settings.killSwitchActive) {
+      settings.killSwitchActive = true;
+      settings.killSwitchDate = new Date();
+      await settings.save();
+      autoTriggered = true;
+      pnlData.killSwitchActive = true;
+
+      // Log + notify via websocket if available
+      try {
+        const websocketService = require('../services/websocketService');
+        websocketService.broadcastSystemNotification?.({
+          id: 'daily-loss-breaker-' + Date.now(),
+          type: 'warning',
+          title: '🛑 Daily Loss Circuit Breaker TRIGGERED',
+          message: `Daily loss of ₹${Math.abs(pnlData.totalPnL).toLocaleString('en-IN')} has hit ${pnlData.usedPct.toFixed(1)}% of your limit. New trades are blocked until midnight IST.`,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (_) { /* websocket optional */ }
+
+      try {
+        const logActivity = require('../utils/logActivity');
+        logActivity?.('risk', 'daily-loss-breaker-triggered', {
+          totalPnL: pnlData.totalPnL,
+          usedPct: pnlData.usedPct,
+          limit: pnlData.dailyLossLimit,
+          capital: settings.capital,
+        }, 'warning');
+      } catch (_) { /* activity log optional */ }
+    }
+
+    // Compute milliseconds until midnight IST (when auto-reset cron fires)
+    const now = new Date();
+    const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const midnightIST = new Date(istNow);
+    midnightIST.setHours(24, 0, 0, 0);
+    const msUntilReset = midnightIST.getTime() - istNow.getTime();
 
     res.json({
       status: 'success',
@@ -373,11 +416,57 @@ router.get('/daily-pnl', async (req, res) => {
         capital: settings.capital,
         riskPerTrade: settings.riskPerTrade,
         dailyLossLimitPct: settings.dailyLossLimitPct,
+        autoTriggeredThisCall: autoTriggered,
+        msUntilReset,
+        resetAtIST: midnightIST.toISOString(),
       },
     });
   } catch (err) {
     console.error('Error calculating daily P&L:', err.message);
     res.status(500).json({ status: 'error', message: 'Failed to calculate daily P&L' });
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/risk/kill-switch/override
+// Manually unlock with typed confirmation (friction = compliance).
+// Body: { confirmation: 'UNLOCK', reason?: string }
+// ─────────────────────────────────────────────
+router.post('/kill-switch/override', async (req, res) => {
+  try {
+    const { confirmation, reason } = req.body || {};
+    if (confirmation !== 'UNLOCK') {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Override requires typing UNLOCK exactly (case-sensitive).',
+      });
+    }
+
+    const settings = await getOrCreateSettings();
+    if (!settings.killSwitchActive) {
+      return res.json({ status: 'success', data: { active: false }, message: 'Kill switch already inactive.' });
+    }
+
+    settings.killSwitchActive = false;
+    settings.killSwitchDate = null;
+    await settings.save();
+
+    try {
+      const logActivity = require('../utils/logActivity');
+      logActivity?.('risk', 'daily-loss-breaker-override', {
+        reason: reason || '(no reason given)',
+        timestamp: new Date().toISOString(),
+      }, 'warning');
+    } catch (_) { /* optional */ }
+
+    res.json({
+      status: 'success',
+      data: { active: false },
+      message: 'Kill switch overridden. Trading unlocked. This override is logged.',
+    });
+  } catch (err) {
+    console.error('Error overriding kill switch:', err.message);
+    res.status(500).json({ status: 'error', message: 'Failed to override kill switch' });
   }
 });
 

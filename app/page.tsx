@@ -17,8 +17,11 @@ import TradeJournalTab from './components/TradeJournalTab';
 import PaperTradingTab from './components/PaperTradingTab';
 import OptionsTab from './components/options/OptionsTab';
 import ActivitySummaryTab from './components/ActivitySummaryTab';
+import DataHealthPanel from './components/DataHealthPanel';
+import ControlCenterTab from './components/ControlCenterTab';
 import AIChatbot from './components/AIChatbot';
 import StickyNotes from './components/StickyNotes';
+import DailyLossLockOverlay from './components/DailyLossLockOverlay';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -53,6 +56,10 @@ export default function Home() {
         return <OptionsTab />;
       case 'activity':
         return <ActivitySummaryTab />;
+      case 'data-health':
+        return <DataHealthPanel />;
+      case 'control-center':
+        return <ControlCenterTab />;
       case 'settings':
         return <SettingsTab />;
       default:
@@ -70,6 +77,8 @@ export default function Home() {
       </main>
       <StickyNotes />
       <AIChatbot />
+      {/* Daily Loss Circuit Breaker — blocks UI when daily P&L breaches limit */}
+      <DailyLossLockOverlay />
     </div>
   );
 }

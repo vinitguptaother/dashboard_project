@@ -14,6 +14,63 @@ Format:
 
 ---
 
+## 2026-04-17 (late night, continuing) — Sprint 1 #15 Daily Loss Circuit Breaker shipped
+
+Continuing Sprint 1 momentum — shipped the single biggest capital protector per research.
+
+### #15 Daily Loss Circuit Breaker — full implementation
+Research consensus: revenge trading after a loss is the #1 profit-killer in retail. Hard lock beats soft warning. Implementation reuses existing `RiskSettings.killSwitchActive` + midnight reset cron + `DailyPnLWidget` — only adds auto-trigger, friction overlay, and override flow.
+
+### Added — Backend
+- `backend/routes/riskManagement.js`:
+  - `GET /api/risk/daily-pnl` now **auto-activates killSwitch** when `usedPct >= 100`. Idempotent — only sets on first breach. Also logs activity + broadcasts WebSocket notification.
+  - Response now includes `msUntilReset` (ms to midnight IST) and `resetAtIST` (ISO string) — consumed by the overlay's countdown timer.
+  - Response includes `autoTriggeredThisCall` flag so frontend knows if this poll was the one that locked.
+  - New `POST /api/risk/kill-switch/override` — typed-UNLOCK requirement (case-sensitive, exactly "UNLOCK"). Optional reason string, logged to activity. Returns 400 on wrong input.
+
+### Added — Frontend
+- `app/hooks/useDailyLossBreaker.ts` — polls `/daily-pnl` every 30s. Exposes `{ isLocked, totalPnL, usedPct, limit, capital, msUntilReset, resetAtIST, autoTriggeredThisCall, refresh, override }`. Override action POSTs with typed confirmation.
+- `app/components/DailyLossLockOverlay.tsx` — full-page lock (z-index 9999) with:
+  - Red gradient header: "Daily Loss Limit Hit — Trading Locked" with alert-octagon icon
+  - Today's Loss card (red): current P&L in ₹, % of limit used, % of capital
+  - Auto-unlock countdown card (amber): live HH:MM:SS ticking down to midnight IST
+  - Override section: shield icon + warning copy ("revenge trading = #1 profit-killer"), typed-UNLOCK input, reason textarea, override button disabled until UNLOCK typed exactly
+  - Backdrop blur + dim on rest of dashboard
+  - Accessible: `role="dialog"`, `aria-modal="true"`, `aria-labelledby`
+  - Renders null when not locked — zero perf impact in normal state
+
+### Mounted
+- `app/page.tsx` — imports `DailyLossLockOverlay`, renders once at the app root (alongside `<StickyNotes />` and `<AIChatbot />`). Active across every tab.
+
+### Verified this session
+- **API**:
+  - `POST /kill-switch/toggle` manually activated → `GET /daily-pnl` returned `killSwitchActive: true`, `msUntilReset: 27478000` (~7h 38m, makes sense at ~4:22 PM IST).
+  - `POST /kill-switch/override` with `{"confirmation": "unlock"}` (lowercase) → 400 with correct error message.
+  - `POST /kill-switch/override` with `{"confirmation": "UNLOCK", "reason": "..."}` → 200, state flipped to unlocked.
+- **Browser**: reloaded page → overlay auto-appeared (full-page, red header, live countdown "07:37:41", disabled override button). Dashboard visibly dimmed behind. All design spec matched.
+- `validate:quick`: TypeScript ✅ ESLint ✅ Backend Syntax ✅ Smoke 17/17 ✅ → PIPELINE GREEN
+
+### Design decisions
+- **Auto-trigger on first breach, not continuous.** Once locked, stays locked — no "un-triggering" if P&L recovers. Midnight cron or typed override only.
+- **2% is blueprint default; user's existing 5% honored.** We don't overwrite user-configured `dailyLossLimitPct`. Future settings UI (Phase 2) will surface this with the 2% blueprint recommendation visible.
+- **Typed UNLOCK with case-sensitivity.** Friction is the point. "unlock" or "Unlock" fails — must be exact.
+- **Override is logged**, not just allowed. Every unlock + reason captured in activity log for self-review.
+- **Overlay mounted at page root**, NOT at layout root. This means it's unmounted on route change — acceptable for a SPA where every route re-mounts. Simpler than making it Provider-scoped.
+
+### Known limitations (Phase 2 TODO)
+- Overlay covers UI but doesn't block backend trade POSTs — user can curl past it. Phase 2: backend middleware checks `killSwitchActive` on `/api/options/trades` + `/api/trade-setup/paper`.
+- Settings UI for configuring `dailyLossLimitPct` is not added (the value exists in DB, editable only via existing Settings tab form).
+- No alerts sent when lock triggers — Telegram notifications (feature #33) will hook in later.
+
+### Files changed this session (Sprint 1 item #15 work)
+- MODIFIED: `backend/routes/riskManagement.js` (auto-trigger in daily-pnl + new override endpoint)
+- NEW: `app/hooks/useDailyLossBreaker.ts`
+- NEW: `app/components/DailyLossLockOverlay.tsx`
+- MODIFIED: `app/page.tsx` (mounted overlay at root)
+- MODIFIED: `project_logs/CHANGELOG.md`, `project_logs/STATE.md`, `project_logs/ROADMAP.md`
+
+---
+
 ## 2026-04-17 (late night, post-Codex) — Sprint 1 begun: #13 Pre-Trade Gate (Phase 1) shipped
 
 **Continuing momentum after pipeline went GREEN.** Started executing Sprint 1 of BOT_BLUEPRINT.
