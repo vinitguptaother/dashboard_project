@@ -14,6 +14,69 @@ Format:
 
 ---
 
+## 2026-04-17 (late night, Sprint 3 continuing⁵) — Sprint 3 #5 Scanner shipped — FULL PAPER-BOT LOOP LIVE
+
+Final piece of the paper-bot pipeline. Scanner pulls top-N candidates from existing Screener.in batches, builds mechanical entry/SL/target, runs them through Validator (#6) → Risk Engine (#10) → Compliance Log (#46) → optional persist as TradeSetup with Realism (#9) fills. The end-to-end loop now works.
+
+### Added — Backend
+- `backend/services/scannerService.js`:
+  - `scanScreen({ screenId, botId, topN, persistAccepted, liquidityBand, risk })` — reads latest `ScreenBatch.rankedResults`, picks top-N by score, builds candidates, runs batch through Validator.
+  - `buildMechanicalCandidate()` — rule-based level generator. Per-bot defaults: swing 5%SL / 1:2 R:R, longterm 12%SL / 1:3 R:R, options-buy 30%/1:2, options-sell 50%/0.5. Quantity sized for ~1% capital risk.
+  - Records `generated` compliance event for every candidate BEFORE validation (full audit trail).
+  - `scanSymbol()` — ad-hoc single-symbol path with same rule set.
+  - `getRecentScans()` — pulls last N `generated` events from compliance feed.
+- `backend/routes/scanner.js`:
+  - GET /screens — lists eligible screens with batch count + avgHitRate so user picks the best-performing one.
+  - POST /scan-screen
+  - POST /scan-symbol
+  - GET /recent
+- `backend/server.js` — mounted `/api/scanner`.
+
+### Added — Frontend
+- `app/components/ScannerPanel.tsx`:
+  - Screen dropdown auto-populates from `/api/scanner/screens` (shows batches + avgHitRate).
+  - Bot + top-N + liquidity band selectors.
+  - Two action buttons: **Scan + Validate (dry run)** and **Scan + Save Accepted**.
+  - Summary grid: Scanned / Accepted / Rejected / Top rejection reason.
+  - Per-candidate mini-cards color-coded green/red with symbol + levels + reason preview.
+  - Expandable "+N" button on rejected cards reveals all reasons.
+  - Rejection breakdown at bottom (top 5 counts).
+- `app/components/Dashboard.tsx` — mounted as Section B2e after Validator panel.
+- `app/components/helpContent.ts` — new `scanner` section with 3 lessons.
+
+### Verified (live — against real user data)
+```
+Screen "1. Companies with good latest results" → longterm bot, top 5:
+  Scanned 4, Accepted 4, Rejected 0
+  ✓ VSTIND  314@₹264.83 SL₹233 T₹360
+  ✓ SGFIN   162@₹513.65 SL₹452 T₹698
+  ✓ WAAREERTL 74@₹1116.1 SL₹982 T₹1518
+  ✓ LLOYDS  1313@₹63.44 SL₹55.83 T₹86.28
+
+Screen "3. Momentum Breakouts" → swing bot, top 3:
+  Scanned 3, Accepted 0, Rejected 3
+  ✗ TITAN  @₹4439: position ₹199k > max ₹100k
+  ✗ ABB    @₹6828: position ₹198k > max ₹100k
+  ✗ BSE    @₹3303: position ₹198k > max ₹100k + sector 40% > max 30%
+
+Top rejection: "Sector Momentum would reach 39.6% > max 30%"
+```
+
+Behavior is exactly what the blueprint wants: Scanner proposes liberally, Validator's per-trade risk + position size + sector caps filter to what the bot's capital can actually support.
+
+### Why this matters (Vinit context)
+Before #5: bots didn't exist. Screens produced ranked symbols but there was no "from ranked symbol to bot-attributed paper trade with full risk gates + audit" pipeline.
+After #5: **the paper-bot loop is complete end-to-end**. One click = fetch screen → build candidates → validate → optionally save. Compliance captures every step. Rejection reasons cluster so patterns are visible ("my caps are too tight for large-caps, let me raise maxPositionPct").
+
+### Sprint 3 status — **6 of 7 complete**
+✅ #5 Scanner · ✅ #6 Validator · ✅ #9 Realism · ✅ #10 Risk · ✅ #11 Kill Switches · ✅ #46 Compliance
+**Remaining:** #7 Executor (live-only — needs broker API + SEBI static-IP; defer until paper-bot loop has 50+ trades)
+
+### Next
+Sprint 3 is essentially complete for paper trading. Recommended next: **run the paper-bot loop for 2-4 weeks** to gather data → #12 Learning Engine (analyzes which gates fire most + suggests cap tuning). Sprint 4 can then build the 4 real bots on top of this foundation.
+
+---
+
 ## 2026-04-17 (late night, Sprint 3 continuing⁴) — Sprint 3 #6 Validator shipped
 
 Single gate between "bot has an idea" and "paper trade gets saved." Wraps Risk Engine + Kill Switches + 2 new bot-specific gates + SEBI compliance recording, all in one atomic call. The pre-requisite for Scanner (#5) and Executor (#7).

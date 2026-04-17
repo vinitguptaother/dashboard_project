@@ -50,8 +50,8 @@ Items: 13 Execution Checklist ✅, 14 Position Sizing Gate ✅, 15 Daily Loss Br
 **Sprint 2 (Weeks 4–6): Indian market feeds** — **✅ 5 of 5 DONE (2026-04-17) 🎉**
 Items: 26 FII/DII ✅ **shipped 2026-04-17**, 27 Corp Events Calendar ✅ **shipped 2026-04-17** (NSE corp actions + board meetings unified, next 7/14/30-day toggle, filter by type, daily 7 AM IST cron), 28 Sector Rotation ✅ **shipped 2026-04-17** (12 NSE sectors vs NIFTY, 1D/1W/1M relative strength heatmap with leaders/laggards, 30-min cron), 29 Bulk/Block Deals ✅ **shipped 2026-04-17** (NSE bulk + block + short deals, smart-money widget with net-flow per symbol + filter by kind/days/min-value, 6 PM IST cron), 30 Market Regime Engine ✅ **shipped 2026-04-17** (NIFTY EMA + VIX + FII/DII classifier, 30-min cron, widget with Why-reasoning)
 
-**Sprint 3 (Weeks 7–10): Bot infrastructure + SEBI compliance**
-Items: 5 Scanner, 6 Validator, 7 Executor, 9 Realistic Paper Engine, 10 Risk Engine, 11 Kill Switches, 46 SEBI Compliance Log
+**Sprint 3 (Weeks 7–10): Bot infrastructure + SEBI compliance** — **✅ 6 of 7 DONE (2026-04-17)**
+Items: 5 Scanner ✅, 6 Validator ✅, 7 Executor 🟡 (live-only, defer until paper-bot validated), 9 Realistic Paper Engine ✅, 10 Risk Engine ✅, 11 Kill Switches ✅, 46 SEBI Compliance Log ✅. Full paper-bot loop live end-to-end.
 
 **Sprint 4 (Weeks 11–14): 4 Bots + first 6 strategies + Learning Engine**
 Items: 1 Swing Bot, 2 Long-term Bot, 3 Options Sell Bot, 4 Options Buy Bot, 8 Strategy Library (partial — 6 strategies), 12 Learning Engine

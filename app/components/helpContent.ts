@@ -492,6 +492,46 @@ export const HELP_CONTENT: HelpSection[] = [
     ],
   },
 
+  // ─── Scanner (Sprint 3 #5) ────────────────────────────────────────────────
+  {
+    id: 'scanner',
+    title: 'Scanner',
+    intro: 'Bot entry-point. Pulls top-N candidates from the latest batch of a selected screen, builds rule-based entry/SL/target levels, and submits them all through the Validator in one batch.',
+    lessons: [
+      {
+        title: 'What it does',
+        summary: 'POST /api/scanner/scan-screen reads ScreenBatch.rankedResults, builds mechanical candidates, runs them through Validator.validateBatch().',
+        steps: [
+          '1) Fetches the latest ScreenBatch for the selected screenId.',
+          '2) Picks top-N symbols by score (default 5, max 20).',
+          '3) Builds mechanical candidates with SL/target defaults per bot type: swing 5%SL / 1:2 R:R · longterm 12%SL / 1:3 R:R · options 30% / 1:2.',
+          '4) Records a `generated` compliance event per candidate (full audit trail).',
+          '5) Submits the batch to Validator — each candidate runs through all 9 gates.',
+          '6) Returns per-candidate result + aggregated summary (accepted/rejected counts + top rejection reason).',
+        ],
+        tips: [
+          'Two buttons: **Scan + Validate (dry run)** and **Scan + Save Accepted**. Always dry-run first to see which gates trip.',
+          'When rejections cluster around one gate (e.g. "Sector … would reach 40%"), your portfolio is already over-concentrated — scanning more won\'t help.',
+          'Scanner is rule-based for speed. For AI-computed levels (entry/SL/target reasoned from technicals), use the existing Trade Setup Generate flow (Perplexity).',
+        ],
+      },
+      {
+        title: 'Scanner Panel (Dashboard widget)',
+        summary: 'Pick screen + bot + top-N + liquidity band → click Scan. See accept/reject count + per-candidate mini-cards.',
+        steps: [
+          'The screen dropdown shows totalBatches + historical avgHitRate so you can pick the highest-performing screen.',
+          'Per-candidate cards are color-coded: green = accepted (saved as paper trade if you chose that button), red = rejected with reason preview.',
+          'Click the "+N" on a rejected card to see all rejection reasons.',
+          'Rejection breakdown at the bottom counts the top 5 reasons across the scan — invaluable for tuning.',
+        ],
+      },
+      {
+        title: 'Ad-hoc symbol scan',
+        summary: 'POST /api/scanner/scan-symbol with { symbol, lastPrice, botId } — builds one candidate + runs through validator. Faster than the full screen path when you just want to test a single idea.',
+      },
+    ],
+  },
+
   // ─── Validator (Sprint 3 #6) ──────────────────────────────────────────────
   {
     id: 'validator',

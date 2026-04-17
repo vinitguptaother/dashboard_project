@@ -13,6 +13,7 @@ import LargeDealsWidget from './LargeDealsWidget';
 import RiskEnginePanel from './RiskEnginePanel';
 import KillSwitchBoard from './KillSwitchBoard';
 import ValidatorPanel from './ValidatorPanel';
+import ScannerPanel from './ScannerPanel';
 
 const BACKEND_URL = 'http://localhost:5002';
 
@@ -384,6 +385,9 @@ const Dashboard = () => {
 
       {/* Section B2d: Validator (Sprint 3 #6) — pre-flight gate for bot + manual candidates */}
       <ValidatorPanel />
+
+      {/* Section B2e: Scanner (Sprint 3 #5) — bot entry-point; pulls top-N from screen batches + validates */}
+      <ScannerPanel />
 
       {/* Section B3: Market Regime (Sprint 2 #30) — top of Indian-signals row */}
       <MarketRegimeWidget />
