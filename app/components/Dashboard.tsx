@@ -10,6 +10,7 @@ import MarketRegimeWidget from './MarketRegimeWidget';
 import SectorRotationHeatmap from './SectorRotationHeatmap';
 import CorporateEventsWidget from './CorporateEventsWidget';
 import LargeDealsWidget from './LargeDealsWidget';
+import RiskEnginePanel from './RiskEnginePanel';
 
 const BACKEND_URL = 'http://localhost:5002';
 
@@ -372,6 +373,9 @@ const Dashboard = () => {
         <DailyPnLWidget />
         <PositionSizer />
       </div>
+
+      {/* Section B2b: Risk Engine (Sprint 3 #10) — portfolio drawdown + sector + bot caps */}
+      <RiskEnginePanel />
 
       {/* Section B3: Market Regime (Sprint 2 #30) — top of Indian-signals row */}
       <MarketRegimeWidget />

@@ -73,6 +73,47 @@ const riskSettingsSchema = new mongoose.Schema({
     default: '',
   },
 
+  // BOT_BLUEPRINT #10 — Risk Engine fields
+  // Per-bot capital allocation (Sprint 4 prep for 4-bot architecture).
+  // When bots are live these slices gate how much each bot can deploy.
+  // Sum should usually equal `capital` (not enforced — user can intentionally
+  // keep some as reserve).
+  botCapital: {
+    swing:        { type: Number, default: 200000 },
+    longterm:     { type: Number, default: 200000 },
+    optionsSell:  { type: Number, default: 50000 },
+    optionsBuy:   { type: Number, default: 50000 },
+  },
+
+  // Max concurrent open positions per bot — prevents over-diversification /
+  // slippage from spray-and-pray signals.
+  maxConcurrentPositions: {
+    swing:        { type: Number, default: 5 },
+    longterm:     { type: Number, default: 10 },
+    optionsSell:  { type: Number, default: 3 },
+    optionsBuy:   { type: Number, default: 3 },
+  },
+
+  // Max % of capital in a single sector (NSE sector classification).
+  // e.g. 30% means if IT already has ₹1.5L exposure on ₹5L capital, new IT
+  // trades are blocked.
+  maxSectorConcentrationPct: {
+    type: Number, default: 30, min: 5, max: 100,
+  },
+
+  // Drawdown lockout — once cumulative equity drops this % from peak,
+  // no new entries allowed until user manually resets (analogous to
+  // kill switch but longer-term).
+  maxDrawdownPct: {
+    type: Number, default: 15, min: 5, max: 50,
+  },
+  drawdownLockoutActive: {
+    type: Boolean, default: false,
+  },
+  drawdownLockoutTriggeredAt: {
+    type: Date, default: null,
+  },
+
   updatedAt: {
     type: Date,
     default: Date.now,

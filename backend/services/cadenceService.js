@@ -140,6 +140,13 @@ const SEED_TASKS = [
     type: 'system', cadence: 'daily', schedule: '0 18 * * 1-5',
     graceMinutes: 180, category: 'market-data', marketDaysOnly: true,
   },
+  {
+    taskKey: 'risk-engine-snapshot',
+    name: 'Risk Engine EOD portfolio snapshot (3:35 PM IST)',
+    description: 'Computes equity = realized + unrealized P&L; tracks peak + drawdown. Auto-locks trading if DD crosses maxDrawdownPct. Powers the Risk Engine panel.',
+    type: 'system', cadence: 'daily', schedule: '35 15 * * 1-5',
+    graceMinutes: 120, category: 'risk', marketDaysOnly: true,
+  },
 
   // ── User activities (no automation; user is expected to perform them)
   {

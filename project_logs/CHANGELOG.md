@@ -14,6 +14,82 @@ Format:
 
 ---
 
+## 2026-04-17 (late night, Sprint 3 continuing) — Sprint 3 #10 Risk Engine shipped
+
+Unified portfolio risk gate that aggregates Sprint 1 items (#14 Position Sizing, #15 Daily Loss Breaker, #16 Post-Loss Cooldown) and adds three new capabilities: **drawdown tracker**, **sector concentration cap**, and **per-bot capital allocation**. Single `evaluateTrade()` call that gates every bot/manual paper trade in Sprint 4+.
+
+### Added — Backend
+- `backend/models/PortfolioSnapshot.js` — daily EOD equity snapshot: realizedPnL, unrealizedPnL, currentEquity, peakEquity (running max), drawdownPct, openPositions, closedToday. Indexed on date for history queries.
+- `backend/models/RiskSettings.js` — extended (backward-compat) with:
+  - `botCapital` per-bot ₹ allocations (swing 2L / longterm 2L / optionsSell 50k / optionsBuy 50k)
+  - `maxConcurrentPositions` per bot (5 / 10 / 3 / 3)
+  - `maxSectorConcentrationPct` (default 30%)
+  - `maxDrawdownPct` (default 15%) + `drawdownLockoutActive` + `drawdownLockoutTriggeredAt`
+- `backend/services/riskEngineService.js`:
+  - `computeSnapshot()` — computes + persists EOD equity + drawdown.
+  - `getDrawdownState()` — current DD vs max, lockout status, equity decomposition.
+  - `getSectorExposure()` — open-position exposure grouped by sector, % of capital per sector, max cap reference.
+  - `getBotCapital()` — per-bot deployed / allocated / utilization %, open positions / max.
+  - `evaluateTrade({ botId, symbol, action, qty, entryPrice, stopLoss, sector })` — runs 7 sequential gates:
+    1. Kill switch active?
+    2. Post-loss cooldown active?
+    3. Drawdown lockout (DD ≥ maxDrawdownPct)?
+    4. Per-trade risk ≤ riskPerTrade% of capital (Sprint 1 #14)?
+    5. Position notional ≤ maxPositionPct% of capital (Sprint 1 #14)?
+    6. Sector concentration stays ≤ maxSectorConcentrationPct after this trade?
+    7. Bot limits: concurrent positions + allocated capital?
+  - `getPortfolioState()` — aggregate for widget consumer.
+  - `getSettings()` helper backfills missing #10 fields on existing docs (Mongoose defaults only apply to NEW docs).
+- `backend/routes/riskEngine.js` — GET /portfolio-state, /drawdown, /sector-exposure, /bot-capital; POST /evaluate, /snapshot, /drawdown-lockout/clear (requires `{confirmation: "UNLOCK"}`).
+- `backend/server.js`:
+  - Mounted `/api/risk-engine`.
+  - NEW cron `35 15 * * 1-5` Asia/Kolkata — daily 3:35 PM IST EOD snapshot. Auto-activates drawdown lockout when DD crosses threshold.
+- `backend/services/cadenceService.js` — seeded `risk-engine-snapshot` task (daily, category: risk, marketDaysOnly).
+
+### Added — Frontend
+- `app/components/RiskEnginePanel.tsx`:
+  - Top: capital + key limits (risk/trade, max sector, max DD).
+  - Lockout banner (red) with "Clear lockout" button when drawdown limit tripped.
+  - Drawdown card: progress bar vs max (green/amber/orange/red), equity + peak + realized/unrealized split.
+  - Total exposure card: utilization % + ₹ deployed + open-position count.
+  - Sector concentration: one bar per sector with color (green/amber/red based on vs cap).
+  - Per-bot capital: cards for each of the 4 bots with utilization bar.
+  - Polls `/api/risk-engine/portfolio-state` every 2 min.
+- `app/components/Dashboard.tsx` — mounted as Section B2b (between DailyPnL+PositionSizer and MarketRegime).
+- `app/components/helpContent.ts` — new `risk-engine` section with 4 detailed lessons covering drawdown, sector, per-bot, and the unified evaluate gate.
+
+### Verified (live)
+```
+portfolio-state: capital=₹500000, DD=0%/max=15%, maxConc=30%
+  swing: allocated=₹200000, max=5 positions
+  longterm: allocated=₹200000, max=10
+  options-sell: allocated=₹50000, max=3
+  options-buy: allocated=₹50000, max=3
+
+evaluate(RELIANCE BUY 100@2800 SL 2500, bot=swing, sector=Energy) → ALLOWED=false:
+  ❌ Per-trade risk ₹30000 > limit ₹10000 (2%)
+  ❌ Position ₹280000 > max ₹100000 (20%)
+  ❌ Sector Energy would reach 56% > max 30%
+  ❌ Bot swing deployed ₹280000 > allocated ₹200000
+
+evaluate(HDFCBANK BUY 5@1500 SL 1470, bot=swing, sector=Banking) → ALLOWED=true ✓
+```
+
+### Why this matters (Vinit context)
+Before #10: daily loss breaker stops bleeding, but nothing catches slow drawdowns or over-concentration in one sector. A trader could lose 20% over 6 weeks without any gate firing.
+After #10: drawdown lockout trips at a set %, sector cap prevents "all my 5 trades are in IT" syndrome, per-bot caps enforce the 4-bot capital discipline locked in the blueprint.
+
+### Next
+Sprint 3 remaining items:
+- #11 Kill Switches — unify existing daily-loss breaker + cooldown + new drawdown lockout into a single Kill Switch Board UI.
+- #5 Scanner — the bot entry point that queries DB + AI to generate setup candidates.
+- #6 Validator — wraps every candidate with `evaluateTrade()` before it becomes a real paper trade.
+- #46 SEBI Compliance Log — algo-ID + timestamp + reasoning, written on every bot decision. Critical from Day 1.
+
+Recommend: **#11 Kill Switches** next — small surface, huge UX win (one place to see "am I locked out, and why?").
+
+---
+
 ## 2026-04-17 (late night, Sprint 3 kickoff) — Sprint 3 #9 Realistic Paper Engine — Phase 1 shipped
 
 First Sprint 3 item. Foundational for the 4-bot architecture: every paper trade (from any bot) will book through this engine so graduation-to-live is honest. Applies real-world slippage + broker costs + latency to paper trades.

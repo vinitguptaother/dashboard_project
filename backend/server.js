@@ -210,6 +210,7 @@ app.use('/api/sector-rotation', require('./routes/sectorRotation'));
 app.use('/api/corporate-actions', require('./routes/corporateActions'));
 app.use('/api/large-deals', require('./routes/largeDeals'));
 app.use('/api/paper-realism', require('./routes/paperRealism'));
+app.use('/api/risk-engine', require('./routes/riskEngine'));
 
 // Error handling middleware
 app.use(errorHandler);
@@ -857,6 +858,31 @@ function startScheduledTasks() {
     } catch (error) {
       console.error('❌ Corp Actions error:', error.message);
       cadenceService.reportRun('corporate-actions', 'failure', error.message).catch(() => {});
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+  // Risk Engine — EOD portfolio snapshot at 3:35 PM IST (after market close).
+  // Persists equity + peak + drawdown for historical DD tracking.
+  // Auto-activates drawdown lockout if DD crosses maxDrawdownPct.
+  cron.schedule('35 15 * * 1-5', async () => {
+    try {
+      const { holidays } = holidayService.getHolidays();
+      if (!isMarketOpen(new Date(new Date().setHours(12, 0, 0, 0)), holidays)) return;
+      const riskSvc = require('./services/riskEngineService');
+      const RiskSettings = require('./models/RiskSettings');
+      const snap = await riskSvc.computeSnapshot({ persist: true });
+      const settings = await RiskSettings.findOne({ userId: 'default' });
+      if (settings && snap.drawdownPct >= settings.maxDrawdownPct && !settings.drawdownLockoutActive) {
+        settings.drawdownLockoutActive = true;
+        settings.drawdownLockoutTriggeredAt = new Date();
+        await settings.save();
+        console.log(`🛑 Drawdown lockout triggered — DD ${snap.drawdownPct}% ≥ max ${settings.maxDrawdownPct}%`);
+      }
+      console.log(`📉 Portfolio snapshot: equity ₹${snap.currentEquity.toFixed(0)}, peak ₹${snap.peakEquity.toFixed(0)}, DD ${snap.drawdownPct.toFixed(2)}%`);
+      cadenceService.reportRun('risk-engine-snapshot', 'success', `DD=${snap.drawdownPct}%`).catch(() => {});
+    } catch (error) {
+      console.error('❌ Risk Engine snapshot error:', error.message);
+      cadenceService.reportRun('risk-engine-snapshot', 'failure', error.message).catch(() => {});
     }
   }, { timezone: 'Asia/Kolkata' });
 

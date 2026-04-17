@@ -379,6 +379,62 @@ export const HELP_CONTENT: HelpSection[] = [
     ],
   },
 
+  // ─── Risk Engine (Sprint 3 #10) ───────────────────────────────────────────
+  {
+    id: 'risk-engine',
+    title: 'Risk Engine',
+    intro: 'Unified portfolio risk: drawdown tracker, sector concentration, per-bot capital caps, and a single evaluate() gate that every trade passes through.',
+    lessons: [
+      {
+        title: 'Drawdown tracker',
+        summary: 'Tracks equity (realized + unrealized P&L) vs peak. Lockout trips when drawdown crosses maxDrawdownPct.',
+        steps: [
+          'EOD snapshot at 3:35 PM IST (after close) persists equity + peak + DD%.',
+          'Unrealized = MTM on ACTIVE paper trades; Realized = sum of closed paper trades\' netPnL (realism engine).',
+          'Peak equity ratchets up — never decreases. DD % = (peak − current) / peak × 100.',
+          'When DD ≥ maxDrawdownPct, `drawdownLockoutActive` flips true → evaluateTrade blocks new entries.',
+          'Clear lockout: click "Clear lockout" on the panel (requires confirmation).',
+        ],
+        tips: [
+          'Default maxDrawdownPct is 15%. Tune in Settings for your risk appetite (5-20% range).',
+          'Lockout is slower-reacting than the daily-loss kill switch — it catches slow bleeds.',
+          'Lockout persists across days until manually cleared. Restart your trading mental state before clearing.',
+        ],
+      },
+      {
+        title: 'Sector concentration cap',
+        summary: 'Prevents over-concentration: no single NSE sector can exceed maxSectorConcentrationPct of capital.',
+        steps: [
+          'When a trade is evaluated: new exposure + existing sector exposure must stay below cap.',
+          'Sector resolution comes from the trade\'s `sector` field (or `screenName` as fallback).',
+          'Bars on the panel color: green (fine) · amber (>80% of cap) · red (exceeded).',
+        ],
+        tips: [
+          'Default 30% cap balances diversification vs conviction. Lower it (20-25%) if you want broader spread.',
+          'Ignore for a few trades by raising cap in Settings; re-lower later.',
+        ],
+      },
+      {
+        title: 'Per-bot capital + concurrent position caps',
+        summary: 'Each bot (Swing / Long-term / Options Sell / Options Buy) has its own ₹ allocation + max open positions. Sprint 4 prep.',
+        tips: [
+          'Defaults: Swing ₹2L / Long-term ₹2L / Options Sell ₹50k / Options Buy ₹50k.',
+          'Manual trades are exempt from per-bot caps — they use the shared capital.',
+          'Bar colors: green (<70%) · amber (70-90%) · red (>90% utilized).',
+        ],
+      },
+      {
+        title: 'Unified evaluate() gate',
+        summary: 'POST /api/risk-engine/evaluate runs ALL checks in one call — kill switch, cooldown, drawdown, per-trade risk, position size, sector concentration, per-bot caps.',
+        steps: [
+          'Body: { botId?, symbol, action, qty, entryPrice, stopLoss, sector? }',
+          'Response: { allowed: boolean, reasons: string[], checks: {...} }',
+          'When any bot posts a trade (Sprint 4+), its Validator calls this. If allowed=false, trade is rejected with full reason list.',
+        ],
+      },
+    ],
+  },
+
   // ─── System self-awareness ────────────────────────────────────────────────
   {
     id: 'system-health',
