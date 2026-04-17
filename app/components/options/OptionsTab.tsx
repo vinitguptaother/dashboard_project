@@ -10,12 +10,15 @@ import { BACKEND_URL } from './constants';
 import { MarginData, PayoffPoint } from './types';
 import { useMarketStatus } from '../../hooks/useMarketStatus';
 import PreTradeGate from '../PreTradeGate';
+import MistakeTagModal, { TradeCloseContext } from '../MistakeTagModal';
 
 export default function OptionsTab() {
   const [underlying, setUnderlying] = useState('NIFTY');
   const [showChainModal, setShowChainModal] = useState(false);
   const [showChargesModal, setShowChargesModal] = useState(false);
   const [showPreTradeGate, setShowPreTradeGate] = useState(false);
+  // Pending close — modal must confirm mistake tag before actual close fires
+  const [pendingClose, setPendingClose] = useState<{ id: string; exitPnl: number; context: TradeCloseContext } | null>(null);
   const marketStatus = useMarketStatus();
 
   // Data hook
@@ -139,6 +142,34 @@ export default function OptionsTab() {
     } catch (e: any) { setAiAnalysis('Error: ' + e.message); }
     finally { setAiLoading(false); }
   }, [legs, payoff, underlying, strategyName, spotPrice]);
+
+  // Close a trade — intercepts to force MistakeTagModal before actual close fires.
+  // Guarantees every closed trade has a TradeJournalEntry.
+  const handleCloseTradeWithJournal = useCallback((id: string, exitPnl: number) => {
+    const trade = trades.find((t: any) => t._id === id);
+    const context: TradeCloseContext = {
+      tradeType: 'options',
+      tradeId: id,
+      underlying: trade?.underlying || '',
+      strategyName: trade?.strategyName || '',
+      entryPrice: trade?.entrySpot || 0,
+      exitPrice: 0, // not stored in options trade today
+      entryAt: trade?.createdAt || undefined,
+      exitAt: new Date(),
+      qty: trade?.legs?.reduce((s: number, l: any) => s + (l.qty || 0) * (l.lotSize || 1), 0) || 0,
+      pnl: exitPnl,
+    };
+    setPendingClose({ id, exitPnl, context });
+  }, [trades]);
+
+  // Fires AFTER user picks a mistake tag in the MistakeTagModal.
+  // This is the point where the actual backend close (PUT /trades/:id) runs.
+  const handleCloseTradeConfirmed = useCallback(async (_journalId: string) => {
+    if (!pendingClose) return;
+    const { id, exitPnl } = pendingClose;
+    setPendingClose(null);
+    await closeTrade(id, exitPnl);
+  }, [pendingClose, closeTrade]);
 
   // Load a trade's legs into the strategy builder for viewing
   const loadTradeToBuilder = useCallback((trade: any) => {
@@ -274,7 +305,7 @@ export default function OptionsTab() {
           trades={trades}
           tradeStats={tradeStats}
           livePnL={livePnL}
-          onCloseTrade={closeTrade}
+          onCloseTrade={handleCloseTradeWithJournal}
           onDeleteTrade={deleteTrade}
           chainLoaded={!!chain}
           onLoadTrade={loadTradeToBuilder}
@@ -342,6 +373,14 @@ export default function OptionsTab() {
           intendedEntry: spotPrice,
         }}
         title="Pre-Trade Checklist — Options Paper Trade"
+      />
+
+      {/* Mistake Tag Modal — forced on every trade close (fires before backend PUT) */}
+      <MistakeTagModal
+        isOpen={!!pendingClose}
+        onClose={() => setPendingClose(null)}
+        onConfirmed={handleCloseTradeConfirmed}
+        tradeContext={pendingClose?.context || {}}
       />
     </div>
   );

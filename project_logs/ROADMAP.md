@@ -42,8 +42,8 @@
 
 ## 📋 Build Order (6 sprints to paper-ready, then TBD weeks to live)
 
-**Sprint 1 (Weeks 1–3): Discipline loop + Data health**
-Items: 13 Execution Checklist ✅ **Phase 1 shipped 2026-04-17**, 14 Position Sizing Gate, 15 Daily Loss Breaker ✅ **shipped 2026-04-17** (auto-trigger + overlay + typed-UNLOCK override), 16 Post-Loss Cooldown, 17 Auto Journal, 18 Mistake Tagging, 38 Data Health Panel ✅ **already wired**, 39 Broker Readiness (covered by SystemHealthPanel)
+**Sprint 1 (Weeks 1–3): Discipline loop + Data health** — 6 of 9 DONE
+Items: 13 Execution Checklist ✅ **Phase 1 shipped 2026-04-17**, 14 Position Sizing Gate 🟡 remaining, 15 Daily Loss Breaker ✅ **shipped 2026-04-17**, 16 Post-Loss Cooldown 🟡 remaining, 17 Auto Journal ✅ **Phase 1 shipped 2026-04-17**, 18 Mistake Tagging ✅ **shipped 2026-04-17**, 38 Data Health Panel ✅ **already wired**, 39 Broker Readiness ✅ (via SystemHealthPanel), 40 Control Center ✅ **already wired**
 
 **#13 Phase 2 TODO** — backend enforcement: `/api/options/trades` + `/api/trade-setup/paper` + future bot endpoints require valid recent `checklistId` with `allPassed=true` in request body, else 403. Backend gate logic lives in `backend/routes/tradeChecklist.js`'s `GET /:id` endpoint already.
 

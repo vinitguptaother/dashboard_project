@@ -202,6 +202,7 @@ app.use('/api/data-health', require('./routes/dataHealth'));
 app.use('/api/control-center', require('./routes/controlCenter'));
 app.use('/api/trade-replay', require('./routes/tradeReplay'));
 app.use('/api/trade-checklist', require('./routes/tradeChecklist'));
+app.use('/api/trade-journal', require('./routes/tradeJournal'));
 
 // Error handling middleware
 app.use(errorHandler);

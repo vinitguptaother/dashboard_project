@@ -14,6 +14,94 @@ Format:
 
 ---
 
+## 2026-04-17 (late night, continuing²) — Sprint 1 #17 Auto Journal + #18 Mistake Tagging shipped
+
+Continuing Sprint 1 momentum after #15. Paired #17 (Auto Journal) + #18 (Mistake Tagging) as one feature since they share infrastructure.
+
+### #17 + #18 together — what shipped
+
+Every closed trade now forces a mistake-tag + creates a rich journal entry. Quarterly report aggregates rupee cost per mistake category (turns "I trade badly sometimes" into "revenge trades cost me ₹47K").
+
+### Added — Backend
+- `backend/models/TradeJournalEntry.js` — rich journal entry schema:
+  - Trade snapshot (denormalized so entries survive if source trade deleted)
+  - Market context (VIX, NIFTY level, regime, FII/DII, sector — Phase 1 captures what's cheap)
+  - Mistake tag (MANDATORY enum: clean / revenge / fomo / moved_sl / oversized / early_exit / late_exit / no_thesis / ignored_plan / other)
+  - Notes + lessonLearned fields for self-reflection
+  - Auto-computed `outcome` (win/loss/breakeven) + `holdingPeriodHours` on save
+  - Indexed for quarterly queries (exitAt, mistakeTag, strategyName, regime)
+
+- `backend/routes/tradeJournal.js` — 4 endpoints:
+  - `POST /entry` — create entry. Validates `mistakeTag` required, auto-enriches with `niftyLevel` from MarketData cache.
+  - `GET /list` — filterable by mistakeTag / strategy / outcome / tradeType (paginated).
+  - `GET /mistake-stats?days=90` — aggregation: count + totalPnl + wins/losses + avgPnl per mistake category, sorted worst-first.
+  - `GET /:id` — single fetch.
+- `backend/server.js` — mounted at `/api/trade-journal`.
+
+### Added — Frontend
+- `app/components/MistakeTagModal.tsx` — forced post-close reflection:
+  - 10 tag buttons in 2-column grid with icons + severity colors (green/amber/red)
+    - "Clean execution" (green, good)
+    - "Revenge trade" / "FOMO entry" / "Moved SL" / "Oversized" / "Ignored plan" (red, bad)
+    - "Exited too early" / "Exited too late" / "No written thesis" / "Other" (amber, mild)
+  - Trade summary strip: strategy · underlying · qty · formatted P&L (colored by outcome)
+  - Notes textarea + Lesson-learned textarea
+  - Submit disabled until a tag selected
+  - On confirm → POST to `/api/trade-journal/entry` → returns journalEntryId → parent finalizes close
+
+### Wired in
+- `app/components/options/OptionsTab.tsx`:
+  - New `pendingClose` state: `{ id, exitPnl, context }`
+  - `handleCloseTradeWithJournal(id, exitPnl)` — new interceptor:
+    - Finds trade in `trades` array, builds TradeCloseContext (tradeType, id, underlying, strategyName, entry/exit, qty, pnl)
+    - Sets pendingClose → MistakeTagModal opens
+  - `handleCloseTradeConfirmed(journalId)` — fires AFTER modal submission:
+    - Calls original `closeTrade(id, exitPnl)` from hooks.ts (unchanged)
+    - Backend PUT `/api/options/trades/:id` fires only after journal entry exists
+  - `onCloseTrade` prop on LeftPanel swapped from `closeTrade` to `handleCloseTradeWithJournal`
+  - `<MistakeTagModal>` rendered next to existing modals at the end of JSX
+
+### Design decisions
+- **Modal is a hard gate** for this close path — user cannot close a trade without tagging.
+- **Mistake tag is MANDATORY at schema level** (required: true in Mongoose). Default 'clean' if user confirms no mistake.
+- **Context enrichment is thin in Phase 1** — only what's free (NIFTY level from MarketData cache). VIX, FII/DII, sector perf are TODO for Phase 2 since they need either existing caches or new fetches.
+- **Journal entry is decoupled from the trade**: denormalized snapshot survives trade deletion. Phase 2 will also link back via `tradeId`.
+- **Wired only into Options close path this session.** Stock trade close (`/api/trade-setup/paper` + TradeJournalTab editing) uses a different flow — wiring identically there is ~15 min next session.
+
+### Verified this session
+- API: `POST /api/trade-journal/entry` with `{mistakeTag:"clean", pnl:2500, ...}` → 200, entry created with `outcome:"win"` auto-computed and `context.niftyLevel: 24353.55` auto-enriched.
+- API: `GET /api/trade-journal/mistake-stats` → returns aggregation by mistake category with rupee totals + winRate.
+- `validate:quick`: TypeScript ✅ ESLint ✅ Backend Syntax ✅ Smoke 17/17 ✅ → PIPELINE GREEN.
+- Browser smoke for the modal deferred to user — wiring follows established patterns (like PreTradeGate from #13), low risk.
+
+### Sprint 1 status (6 of 9 items done)
+- #13 Pre-Trade Gate Phase 1 ✅
+- #15 Daily Loss Circuit Breaker ✅
+- #17 Auto Journal (Phase 1) ✅ — this commit
+- #18 Mistake Tagging ✅ — this commit
+- #38 Data Health Panel ✅ (pre-existing)
+- #39 Broker Readiness ✅ (via SystemHealthPanel)
+- #40 Control Center ✅ (pre-existing)
+- #14 Position Sizing Hard Gate — 🟡 remaining
+- #16 Post-Loss Cooldown — 🟡 remaining
+
+### Phase 2 TODOs for #17/#18
+- Wire into stock trade close flow (`/api/trade-setup/paper` PATCH to close)
+- Auto-enrich with VIX, FII/DII (latest cached), sector performance
+- Chart screenshots at entry + exit (needs headless browser or chart-image API)
+- Link back to PreTradeGate's checklistId if trade used the Gate
+- UI view: journal list + mistake-stats chart in TradeJournalTab
+
+### Files changed this session (Sprint 1 items #17 + #18)
+- NEW: `backend/models/TradeJournalEntry.js`
+- NEW: `backend/routes/tradeJournal.js`
+- MODIFIED: `backend/server.js` (route mount)
+- NEW: `app/components/MistakeTagModal.tsx`
+- MODIFIED: `app/components/options/OptionsTab.tsx` (close-trade interceptor)
+- MODIFIED: `project_logs/CHANGELOG.md`, `STATE.md`, `ROADMAP.md`
+
+---
+
 ## 2026-04-17 (late night, continuing) — Sprint 1 #15 Daily Loss Circuit Breaker shipped
 
 Continuing Sprint 1 momentum — shipped the single biggest capital protector per research.
