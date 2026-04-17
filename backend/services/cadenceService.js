@@ -140,6 +140,35 @@ const SEED_TASKS = [
     type: 'system', cadence: 'daily', schedule: '0 18 * * 1-5',
     graceMinutes: 180, category: 'market-data', marketDaysOnly: true,
   },
+  // ── 4 Bots (BOT_BLUEPRINT #1-#4) — each honors BotConfig.enabled ─────────
+  {
+    taskKey: 'bot-swing',
+    name: 'Swing Bot (Tue-Fri 09:00 IST)',
+    description: 'Scans the configured screen\'s latest batch, picks top-N, validates, persists accepted.',
+    type: 'system', cadence: 'custom', schedule: '0 9 * * 2-5',
+    graceMinutes: 180, category: 'bots', marketDaysOnly: true,
+  },
+  {
+    taskKey: 'bot-longterm',
+    name: 'Long-term Bot (Mon 09:00 IST)',
+    description: 'Weekly scan of long-term screen; wider SL + R:R; quality-first names.',
+    type: 'system', cadence: 'weekly', schedule: '0 9 * * 1',
+    graceMinutes: 360, category: 'bots', marketDaysOnly: true,
+  },
+  {
+    taskKey: 'bot-options-sell',
+    name: 'Options Sell Bot (Mon-Thu 11:30 IST)',
+    description: 'Premium-selling bot; triggers when IV rank is elevated (regime-gated later).',
+    type: 'system', cadence: 'custom', schedule: '30 11 * * 1-4',
+    graceMinutes: 60, category: 'bots', marketDaysOnly: true,
+  },
+  {
+    taskKey: 'bot-options-buy',
+    name: 'Options Buy Bot (Mon-Thu 10:00 IST)',
+    description: 'Directional premium buyer; regime=breakout + IV rank low.',
+    type: 'system', cadence: 'custom', schedule: '0 10 * * 1-4',
+    graceMinutes: 60, category: 'bots', marketDaysOnly: true,
+  },
   {
     taskKey: 'risk-engine-snapshot',
     name: 'Risk Engine EOD portfolio snapshot (3:35 PM IST)',

@@ -53,8 +53,8 @@ Items: 26 FII/DII ✅ **shipped 2026-04-17**, 27 Corp Events Calendar ✅ **ship
 **Sprint 3 (Weeks 7–10): Bot infrastructure + SEBI compliance** — **✅ 6 of 7 DONE (2026-04-17)**
 Items: 5 Scanner ✅, 6 Validator ✅, 7 Executor 🟡 (live-only, defer until paper-bot validated), 9 Realistic Paper Engine ✅, 10 Risk Engine ✅, 11 Kill Switches ✅, 46 SEBI Compliance Log ✅. Full paper-bot loop live end-to-end.
 
-**Sprint 4 (Weeks 11–14): 4 Bots + first 6 strategies + Learning Engine**
-Items: 1 Swing Bot, 2 Long-term Bot, 3 Options Sell Bot, 4 Options Buy Bot, 8 Strategy Library (partial — 6 strategies), 12 Learning Engine
+**Sprint 4 (Weeks 11–14): 4 Bots + first 6 strategies + Learning Engine** — **4 of 6 done (2026-04-17)**
+Items: 1 Swing Bot ✅, 2 Long-term Bot ✅, 3 Options Sell Bot ✅, 4 Options Buy Bot ✅ (all via unified botService with per-bot cron, config, kill switch), 8 Strategy Library 🟡, 12 Learning Engine 🟡
 
 **Sprint 5 (Weeks 15–16): Complete Strategy Library + Start Paper Trading**
 Items: 8 Strategy Library (remaining 8 strategies) + begin paper trading

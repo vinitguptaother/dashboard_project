@@ -215,6 +215,7 @@ app.use('/api/kill-switches', require('./routes/killSwitches'));
 app.use('/api/compliance', require('./routes/compliance'));
 app.use('/api/validator', require('./routes/validator'));
 app.use('/api/scanner', require('./routes/scanner'));
+app.use('/api/bots', require('./routes/bots'));
 
 // Error handling middleware
 app.use(errorHandler);
@@ -283,6 +284,14 @@ function startScheduledTasks() {
     complianceService.seedAlgoRegistry()
       .then(n => console.log(`🧾 Algo Registry: ${n} algos seeded/verified (SEBI compliance #46)`))
       .catch(e => console.error('❌ Algo Registry seed error:', e.message));
+  } catch (e) { /* first-boot tolerance */ }
+
+  // ── Seed Bot Configs (idempotent) — BOT_BLUEPRINT #1-#4 ───────────────────
+  try {
+    const botService = require('./services/botService');
+    botService.seedBotConfigs()
+      .then(n => console.log(`🤖 Bot Configs: ${n} bots seeded/verified`))
+      .catch(e => console.error('❌ Bot Config seed error:', e.message));
   } catch (e) { /* first-boot tolerance */ }
 
   // ── Holiday list refresh on startup + daily at 6 AM IST (00:30 UTC) ────────
@@ -915,6 +924,28 @@ function startScheduledTasks() {
       cadenceService.reportRun('risk-engine-snapshot', 'failure', error.message).catch(() => {});
     }
   }, { timezone: 'Asia/Kolkata' });
+
+  // 4 Bots (Sprint 4 items #1-#4) — each bot has its own cron + honors
+  // BotConfig.enabled + kill switches + market-hours guard. See botService.runBot().
+  const BOT_SCHEDULES = [
+    { botId: 'swing',         cron: '0 9 * * 2-5',     label: 'Swing' },
+    { botId: 'longterm',      cron: '0 9 * * 1',       label: 'Long-term' },
+    { botId: 'options-sell',  cron: '30 11 * * 1-4',   label: 'Options Sell' },
+    { botId: 'options-buy',   cron: '0 10 * * 1-4',    label: 'Options Buy' },
+  ];
+  for (const b of BOT_SCHEDULES) {
+    cron.schedule(b.cron, async () => {
+      try {
+        const botService = require('./services/botService');
+        const run = await botService.runBot(b.botId, { trigger: 'auto' });
+        console.log(`🤖 ${b.label} bot · ${run.status} · ${run.summary || run.skipReason || ''}`);
+        cadenceService.reportRun(`bot-${b.botId}`, run.status === 'success' ? 'success' : 'failure', run.summary || run.skipReason || '').catch(() => {});
+      } catch (error) {
+        console.error(`❌ ${b.label} bot error:`, error.message);
+        cadenceService.reportRun(`bot-${b.botId}`, 'failure', error.message).catch(() => {});
+      }
+    }, { timezone: 'Asia/Kolkata' });
+  }
 
   // Bulk / Block / Short Deals — daily 6 PM IST (after EOD publication).
   // "Who took big positions today?" — key Indian smart-money signal.

@@ -14,6 +14,72 @@ Format:
 
 ---
 
+## 2026-04-17 (late night, Sprint 4 kickoff) — Sprint 4 #1-#4 the 4 Paper Bots shipped
+
+Full Sprint 4 bot scaffolding: 4 paper bots (Swing, Long-term, Options Sell, Options Buy) as thin scheduled wrappers around Scanner → Validator → Realism → Compliance. Each bot has its own screen, cron schedule, risk overrides, enable/disable flag, and per-bot kill switch. Default: all disabled — user enables explicitly.
+
+### Added — Backend
+- `backend/models/BotConfig.js` — per-bot settings (screenId, cron, topN, liquidityBand, SL%/RR overrides, strategyNotes, lastRun*). Seeded on boot.
+- `backend/models/BotRun.js` — audit of every run: trigger (auto/manual), status (running/success/failure/skipped), screen info, scan counts, acceptedSetupIds, topRejection, rejectionCounts, summary, error/skipReason. Indexed for history queries.
+- `backend/services/botService.js`:
+  - `seedBotConfigs()` — idempotent on-boot seed of all 4 default configs.
+  - `runBot(botId, { trigger })` — unified execution path. Gates: disabled→skip (auto only), kill-switched→skip, no screen→skip, non-market day (auto only)→skip. Otherwise calls `scannerService.scanScreen()` with bot's config, records BotRun with full summary, updates BotConfig.lastRunAt.
+  - `listBotConfigs()` / `updateBotConfig()` — config CRUD.
+  - `getRecentRuns({ botId, limit })` / `getBotStats({ botId, days })` — observability.
+- `backend/routes/bots.js` — GET /configs, PUT /configs/:botId, POST /run/:botId, GET /runs, GET /stats.
+- `backend/server.js`:
+  - Boot: seeds BotConfigs after AlgoRegistry.
+  - NEW 4 cron schedules (Asia/Kolkata):
+    - Swing: `0 9 * * 2-5` (Tue-Fri 09:00)
+    - Long-term: `0 9 * * 1` (Mon 09:00 weekly)
+    - Options Sell: `30 11 * * 1-4` (Mon-Thu 11:30)
+    - Options Buy: `0 10 * * 1-4` (Mon-Thu 10:00)
+  - Each cron calls `botService.runBot(botId, { trigger: 'auto' })` and reports to Cadence.
+- `backend/services/cadenceService.js` — 4 new cadence seed entries (`bot-swing`, `bot-longterm`, `bot-options-sell`, `bot-options-buy`). Cadence Registry total: 26 tasks.
+- `backend/services/validatorService.js` — `checkDuplicateOpen` widened to match existing TradeSetup unique index `uniq_active_symbol_action_paper`. Previously rejected per-bot; now rejects cross-bot (matches DB constraint, prevents E11000 errors at persist-time).
+
+### Added — Frontend
+- `app/components/BotOpsPanel.tsx` — 4-card grid:
+  - Header with bot name + algoId + enable toggle
+  - Screen dropdown (pulls from /api/scanner/screens)
+  - Top-N + SL% + R:R numeric inputs (live-editable)
+  - Cron schedule + description display
+  - Last-run status pill + summary + "ago" timestamp
+  - "Run now" button (respects kill switches, bypasses disabled flag)
+  - Strategy notes footer
+  - Expandable runs feed at bottom (last 12 runs across all bots)
+- `app/components/Dashboard.tsx` — mounted as Section B2f after Scanner.
+- `app/components/helpContent.ts` — new `bots` section with 3 lessons (what each bot does, setup flow, kill-switch interactions).
+
+### Verified (live)
+```
+1) Bot configs seeded: swing / longterm / options-sell / options-buy
+   (all disabled by default, cron schedules set)
+2) PUT /configs/longterm {screenId:"69bb9..." enabled:true} → success
+3) POST /run/longterm → status=success, summary:
+     "scan: 3 → 0 accepted, 3 rejected · top: VSTIND already has
+      an active BUY setup under another workflow"
+4) Stats: runs=1, success=1, totalScanned=3, totalAccepted=0,
+   acceptanceRate=0
+5) POST /run/swing (no screen configured) → status=skipped,
+   skipReason="No screenId configured"
+6) During test — fixed: widened validator duplicate-open check to
+   catch cross-bot collisions BEFORE persist (prevents E11000)
+```
+
+### Why this matters (Vinit context)
+Before #1-#4: Scanner + Validator existed but there was no scheduled bot that actually pulled the trigger. Human-in-the-loop was required every time.
+After #1-#4: The 4 bots run on their own. You enable them, pick a screen, and walk away. They scan → validate → persist → audit. On a bad day, kill switches trip and trading halts automatically.
+
+### Sprint 4 progress
+**4 of 6 done.** ✅ #1 Swing · ✅ #2 Long-term · ✅ #3 Options Sell · ✅ #4 Options Buy. All disabled by default; activate as you trust each one.
+**Remaining:** #8 Strategy Library · #12 Learning Engine.
+
+### Next
+Recommend **#12 Learning Engine** — analyzes compliance + bot-run history to surface patterns ("your sector cap blocked 78% of Banking candidates this month — consider raising to 40%"). Feeds actionable tuning back to the user.
+
+---
+
 ## 2026-04-17 (late night, Sprint 3 continuing⁵) — Sprint 3 #5 Scanner shipped — FULL PAPER-BOT LOOP LIVE
 
 Final piece of the paper-bot pipeline. Scanner pulls top-N candidates from existing Screener.in batches, builds mechanical entry/SL/target, runs them through Validator (#6) → Risk Engine (#10) → Compliance Log (#46) → optional persist as TradeSetup with Realism (#9) fills. The end-to-end loop now works.

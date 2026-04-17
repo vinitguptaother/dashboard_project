@@ -492,6 +492,53 @@ export const HELP_CONTENT: HelpSection[] = [
     ],
   },
 
+  // ─── Bots (Sprint 4 #1-#4) ────────────────────────────────────────────────
+  {
+    id: 'bots',
+    title: 'Bot Ops (4 Paper Bots)',
+    intro: 'The 4 paper bots — Swing, Long-term, Options Sell, Options Buy — each a scheduled wrapper around Scanner + Validator + Realism. Default: disabled. Pick a screen, enable, and wait for the cron (or click "Run now").',
+    lessons: [
+      {
+        title: 'What each bot does',
+        summary: 'Same code path for all 4 — difference is the screen, cron schedule, risk defaults (SL% and R:R), and liquidity band.',
+        steps: [
+          '**Swing Bot** (SWING-V1) · Tue-Fri 09:00 IST · 5% SL / 1:2 R:R · Mid liquidity · swing holding 2-4 wks',
+          '**Long-term Bot** (LONGTERM-V1) · Mon 09:00 IST · 12% SL / 1:3 R:R · Large liquidity · 3-6 month holding',
+          '**Options Sell Bot** (OPTSELL-V1) · Mon-Thu 11:30 IST · 50% SL / 0.5 R:R · premium selling',
+          '**Options Buy Bot** (OPTBUY-V1) · Mon-Thu 10:00 IST · 30% SL / 1:2 R:R · directional premium',
+        ],
+        tips: [
+          'Each run: checks kill switch → checks if disabled → checks screen configured → calls Scanner → logs BotRun audit.',
+          'Auto runs skip gracefully on holidays and when market is closed.',
+          'Manual "Run now" bypasses the enabled flag but still honors kill switches.',
+        ],
+      },
+      {
+        title: 'Setting up a bot',
+        summary: 'Pick a screen, verify SL%/R:R/topN, enable, then either click "Run now" or wait for the cron.',
+        steps: [
+          '1) Pick a screen from the dropdown (only screens with batches show up).',
+          '2) Tweak Top-N (how many top candidates to take), SL %, R:R.',
+          '3) Toggle **ENABLED**. Auto runs now happen on the cron. Click "Run now" to trigger immediately.',
+          '4) Watch "Show runs" for recent results — acceptance rate tells you if your caps are aligned with the screen output.',
+        ],
+        tips: [
+          'If acceptance rate is 0%, the screen is producing stocks whose position notional exceeds your caps. Try a screen of mid/small-caps or raise `maxPositionPct` in Risk Settings.',
+          'Every bot run produces a BotRun row + compliance events. You can trace a specific trade back to its run.',
+        ],
+      },
+      {
+        title: 'Kill switches + risk gates',
+        summary: 'A bot that trips any kill switch skips its run. A candidate that fails any of the 9 Validator gates is rejected with reasons logged.',
+        tips: [
+          'Killing a specific bot (Kill Switch Board) halts only that bot.',
+          'Drawdown lockout (Risk Engine) halts ALL bots until manually cleared.',
+          'Disabling a bot stops auto runs but "Run now" still works — useful for debugging.',
+        ],
+      },
+    ],
+  },
+
   // ─── Scanner (Sprint 3 #5) ────────────────────────────────────────────────
   {
     id: 'scanner',

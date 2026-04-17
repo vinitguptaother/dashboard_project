@@ -34,16 +34,20 @@ const { isMarketOpen } = require('../utils/marketHours');
 
 // ─── Additional gates beyond evaluateTrade() ────────────────────────────────
 
-async function checkDuplicateOpen({ botId, symbol }) {
+async function checkDuplicateOpen({ botId, symbol, action }) {
   if (!symbol) return null;
+  // Match the existing DB unique index `uniq_active_symbol_action_paper`:
+  // (symbol, action, status=ACTIVE, isPaperTrade=true). Rejecting here prevents
+  // the persist-time E11000 collision.
   const existing = await TradeSetup.findOne({
     isPaperTrade: true,
     status: 'ACTIVE',
-    botId: botId || 'manual',
     symbol: symbol.toUpperCase(),
+    action,
   }).lean();
   if (existing) {
-    return `${botId || 'manual'} already has an active ${symbol.toUpperCase()} setup (opened ${new Date(existing.createdAt).toLocaleDateString('en-IN')}).`;
+    const who = existing.botId && existing.botId !== 'manual' ? existing.botId : 'another workflow';
+    return `${symbol.toUpperCase()} already has an active ${action} setup under ${who} (opened ${new Date(existing.createdAt).toLocaleDateString('en-IN')}).`;
   }
   return null;
 }
@@ -126,7 +130,7 @@ async function validateCandidate(candidate, { persist = false } = {}) {
     if (!riskResult.allowed) reasons.push(...riskResult.reasons);
 
     // 3) Validator-specific extra gates
-    const dupReason = await checkDuplicateOpen({ botId, symbol });
+    const dupReason = await checkDuplicateOpen({ botId, symbol, action });
     if (dupReason) { reasons.push(dupReason); checks.duplicateOpen = { blocked: true }; }
     else checks.duplicateOpen = { blocked: false };
 

@@ -14,6 +14,7 @@ import RiskEnginePanel from './RiskEnginePanel';
 import KillSwitchBoard from './KillSwitchBoard';
 import ValidatorPanel from './ValidatorPanel';
 import ScannerPanel from './ScannerPanel';
+import BotOpsPanel from './BotOpsPanel';
 
 const BACKEND_URL = 'http://localhost:5002';
 
@@ -388,6 +389,9 @@ const Dashboard = () => {
 
       {/* Section B2e: Scanner (Sprint 3 #5) — bot entry-point; pulls top-N from screen batches + validates */}
       <ScannerPanel />
+
+      {/* Section B2f: Bot Ops (Sprint 4 #1-#4) — 4 paper bots: enable, schedule, run */}
+      <BotOpsPanel />
 
       {/* Section B3: Market Regime (Sprint 2 #30) — top of Indian-signals row */}
       <MarketRegimeWidget />
