@@ -47,8 +47,8 @@ Items: 13 Execution Checklist ✅, 14 Position Sizing Gate ✅, 15 Daily Loss Br
 
 **#13 Phase 2 TODO** — backend enforcement: `/api/options/trades` + `/api/trade-setup/paper` + future bot endpoints require valid recent `checklistId` with `allPassed=true` in request body, else 403. Backend gate logic lives in `backend/routes/tradeChecklist.js`'s `GET /:id` endpoint already.
 
-**Sprint 2 (Weeks 4–6): Indian market feeds**
-Items: 26 FII/DII, 27 Corp Actions Calendar, 28 Sector Rotation, 29 Bulk/Block Deals, 30 Market Regime Engine
+**Sprint 2 (Weeks 4–6): Indian market feeds** — 1 of 5 done
+Items: 26 FII/DII ✅ **shipped 2026-04-17** (NSE cookie flow + widget + cron + Cadence registered), 27 Corp Actions Calendar 🟡, 28 Sector Rotation 🟡, 29 Bulk/Block Deals 🟡, 30 Market Regime Engine 🟡
 
 **Sprint 3 (Weeks 7–10): Bot infrastructure + SEBI compliance**
 Items: 5 Scanner, 6 Validator, 7 Executor, 9 Realistic Paper Engine, 10 Risk Engine, 11 Kill Switches, 46 SEBI Compliance Log

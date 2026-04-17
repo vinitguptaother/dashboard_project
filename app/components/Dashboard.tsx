@@ -5,6 +5,7 @@ import { TrendingUp, TrendingDown, Layers, LineChart as LineChartIcon, Target, C
 import LiveIndexBar from './LiveIndexBar';
 import PositionSizer from './PositionSizer';
 import DailyPnLWidget from './DailyPnLWidget';
+import FiiDiiWidget from './FiiDiiWidget';
 
 const BACKEND_URL = 'http://localhost:5002';
 
@@ -367,6 +368,9 @@ const Dashboard = () => {
         <DailyPnLWidget />
         <PositionSizer />
       </div>
+
+      {/* Section B3: FII / DII flows (Sprint 2 #26 — Indian directional signal) */}
+      <FiiDiiWidget />
 
       {/* Section C: Active Trade Setups Tracker */}
       {activeSetups.length > 0 && (

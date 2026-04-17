@@ -14,6 +14,75 @@ Format:
 
 ---
 
+## 2026-04-17 (late night, continuing⁵) — Sprint 2 #26 FII/DII Dashboard shipped
+
+First item of Sprint 2 (Indian market feeds). Widget + backend + cron + Cadence Registry seed + Help tab update all in one commit.
+
+### Added — Backend
+- `backend/models/FiiDiiDaily.js` — daily snapshot schema with FII + DII buy/sell/net, unique on date.
+- `backend/services/fiiDiiService.js` — two-source fetch:
+  - **NSE (primary)** with cookie flow: first GET the report page to collect `nsit`/`nseappid` cookies, then call `/api/fiidiiTradeReact` with them. Without cookies NSE returns 401/403.
+  - **Moneycontrol (backup)** — API endpoint that's more IP-forgiving but less reliable long-term.
+  - `normalizeDate()` handles "13-Apr-2026" / "2026-04-13" / "13/04/2026" formats.
+  - `refreshLatest()` tries both fetchers, returns first success, upserts into MongoDB.
+- `backend/routes/fiiDii.js` — 3 endpoints: `/latest`, `/history?days=N` (max 365), `/refresh` (manual).
+- `backend/server.js`:
+  - Mounted `/api/fii-dii` route.
+  - New cron **30 18 * * 1-5 Asia/Kolkata** (6:30 PM IST Mon-Fri, just after NSE publishes). Calls `refreshLatest()` + reports to Cadence Registry.
+
+### Added — Cadence Registry
+- `backend/services/cadenceService.js` — added `fii-dii-daily` task to SEED_TASKS with 3h grace. Registry now has 19 tasks.
+
+### Added — Frontend
+- `app/components/FiiDiiWidget.tsx`:
+  - Two-column cards (FII / DII) with color-coded net (green up arrow / red down arrow).
+  - Shows buy + sell + net in ₹ crore (compact: "₹16.21k cr").
+  - 10-session rolling history table below.
+  - Manual refresh button (calls POST /refresh).
+  - Polls every 5 min.
+  - Source + fetched-at stamp at bottom.
+- `app/components/Dashboard.tsx` — mounted `<FiiDiiWidget />` as new Section B3 after Daily P&L + Position Sizer row.
+
+### Added — Help (user rule #4)
+- `app/components/helpContent.ts` — new section "Indian Market Signals" with FII/DII lesson: what it shows, when it updates, interpretation hints (persistent FII selling 3+ days = correction risk; DII stopping support = watch out).
+
+### Verified
+- API: `POST /api/fii-dii/refresh` → NSE cookie flow succeeded → real data for 2026-04-16:
+  - FII: buy ₹16,209.44 cr, sell ₹15,827.08 cr, **net +₹382.36 cr**
+  - DII: buy ₹16,538.08 cr, sell ₹19,965.83 cr, **net −₹3,427.75 cr**
+  - source: 'nse', sourceDateRaw: '16-Apr-2026'
+- API: `GET /api/cadence/summary` → now 19 tasks (was 18), all on-track.
+- Browser: widget rendered on Dashboard with correct color coding (FII green up, DII red down) and formatted ₹ amounts.
+- `validate:quick`: TypeScript ✅ ESLint ✅ Backend Syntax ✅ Smoke 17/17 ✅ → PIPELINE GREEN.
+
+### Interesting market read from this data
+2026-04-16 was an unusual day: FIIs slightly buying but DIIs heavy sellers (−₹3.4k cr). Indian market usually has DIIs cushioning FII activity — when DIIs turn aggressive sellers, it often signals broader domestic concern. This is exactly the kind of signal the widget is designed to surface.
+
+### Known limitations / Phase 2 TODOs
+- No chart visualization yet (10-day table is text-only) — recharts sparkline to add later.
+- FII/DII F&O activity (index futures / stock futures) not yet fetched — currently cash-only. NSE publishes these separately.
+- Moneycontrol fallback currently broken (their URL changed); NSE cookie flow works, but if NSE ever blocks we need a better backup source (Trendlyne public endpoint is a candidate).
+
+### Sprint 2 progress
+- ✅ #26 FII/DII (this commit)
+- 🟡 #27 Corporate Actions + Earnings Calendar
+- 🟡 #28 Sector Rotation Heatmap
+- 🟡 #29 Bulk/Block Deals + Insider Trades
+- 🟡 #30 Market Regime Engine
+
+### Files this commit
+- NEW: `backend/models/FiiDiiDaily.js`
+- NEW: `backend/services/fiiDiiService.js`
+- NEW: `backend/routes/fiiDii.js`
+- MODIFIED: `backend/server.js` — route mount + cron
+- MODIFIED: `backend/services/cadenceService.js` — seed entry
+- NEW: `app/components/FiiDiiWidget.tsx`
+- MODIFIED: `app/components/Dashboard.tsx` — widget mount
+- MODIFIED: `app/components/helpContent.ts` — Indian Market Signals section
+- MODIFIED: `project_logs/CHANGELOG.md`, `STATE.md`, `ROADMAP.md`
+
+---
+
 ## 2026-04-17 (late night, continuing⁴) — Dashboard self-awareness suite (Help tab + Cadence Registry + Alerts Bell)
 
 Triggered by user's 5 new rules (added to CLAUDE.md §Work Style):

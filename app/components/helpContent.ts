@@ -266,6 +266,30 @@ export const HELP_CONTENT: HelpSection[] = [
     ],
   },
 
+  // ─── Indian market signals (Sprint 2) ─────────────────────────────────────
+  {
+    id: 'indian-signals',
+    title: 'Indian Market Signals',
+    intro: 'Data feeds specific to Indian retail trading — FII/DII, corp actions, sector rotation, etc.',
+    lessons: [
+      {
+        title: 'FII / DII Flows (widget on Dashboard)',
+        summary: 'Daily Foreign + Domestic Institutional Investor cash activity. The single biggest Indian-market directional signal.',
+        tips: [
+          'Updated 6:30 PM IST Mon-Fri (NSE publishes ~6 PM).',
+          'Green net = buying, red net = selling.',
+          'Persistent FII selling for 3+ days often precedes correction.',
+          'DII buys usually cushion FII sells — watch when DII stops buying.',
+        ],
+        steps: [
+          'Default refresh via cron. Manual refresh button on the widget.',
+          'GET /api/fii-dii/latest for single day, /history?days=N for rolling.',
+          'If scrape fails, widget shows last cached data (no gap in display).',
+        ],
+      },
+    ],
+  },
+
   // ─── System self-awareness ────────────────────────────────────────────────
   {
     id: 'system-health',

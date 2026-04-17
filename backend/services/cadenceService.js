@@ -105,6 +105,13 @@ const SEED_TASKS = [
     type: 'system', cadence: 'custom', schedule: '*/30 * * * *',
     graceMinutes: 60, category: 'system',
   },
+  {
+    taskKey: 'fii-dii-daily',
+    name: 'Daily FII/DII institutional flow fetch',
+    description: 'Pulls FII + DII cash activity at 6:30 PM IST Mon-Fri (NSE publishes ~6 PM). Primary Indian directional signal.',
+    type: 'system', cadence: 'daily', schedule: '30 18 * * 1-5',
+    graceMinutes: 180, category: 'market-data', marketDaysOnly: true,
+  },
 
   // ── User activities (no automation; user is expected to perform them)
   {

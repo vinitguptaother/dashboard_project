@@ -204,6 +204,7 @@ app.use('/api/trade-replay', require('./routes/tradeReplay'));
 app.use('/api/trade-checklist', require('./routes/tradeChecklist'));
 app.use('/api/trade-journal', require('./routes/tradeJournal'));
 app.use('/api/cadence', require('./routes/cadence'));
+app.use('/api/fii-dii', require('./routes/fiiDii'));
 
 // Error handling middleware
 app.use(errorHandler);
@@ -770,6 +771,28 @@ function startScheduledTasks() {
     } catch (error) {
       console.error('❌ Daily IV snapshot error:', error.message);
       cadenceService.reportRun('iv-snapshot', 'failure', error.message).catch(() => {});
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+  // Daily FII/DII fetch at 6:30 PM IST Mon-Fri (NSE publishes EOD around 6 PM).
+  cron.schedule('30 18 * * 1-5', async () => {
+    try {
+      const { holidays } = holidayService.getHolidays();
+      // Still refresh on holidays if market was actually open earlier, but skip
+      // if the market was closed today (no fresh data to fetch).
+      if (!isMarketOpen(new Date(new Date().setHours(12, 0, 0, 0)), holidays)) return;
+      const fiiDiiService = require('./services/fiiDiiService');
+      const result = await fiiDiiService.refreshLatest();
+      if (result.ok) {
+        console.log(`💰 FII/DII fetched from ${result.source}: FII ₹${result.doc.fii.netValue}cr net, DII ₹${result.doc.dii.netValue}cr net`);
+        cadenceService.reportRun('fii-dii-daily', 'success', `source=${result.source}`).catch(() => {});
+      } else {
+        console.warn('⚠️  FII/DII fetch failed, all sources:', result.errors);
+        cadenceService.reportRun('fii-dii-daily', 'failure', (result.errors || []).join('; ')).catch(() => {});
+      }
+    } catch (error) {
+      console.error('❌ FII/DII cron error:', error.message);
+      cadenceService.reportRun('fii-dii-daily', 'failure', error.message).catch(() => {});
     }
   }, { timezone: 'Asia/Kolkata' });
 }
