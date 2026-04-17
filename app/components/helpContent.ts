@@ -181,6 +181,24 @@ export const HELP_CONTENT: HelpSection[] = [
           'P&L is computed and fed into Daily P&L widget.',
         ],
       },
+      {
+        title: 'Realistic Paper Engine (Sprint 3 #9)',
+        summary: 'Paper trades book with real-world slippage + broker costs so paper P&L matches what live trading would actually produce.',
+        steps: [
+          'On entry: LTP is adjusted by liquidity-band slippage (LARGE 2bps / MID 5bps / SMALL 15bps / ILLIQUID 40bps / OPTIONS 10bps). BUY fills higher, SELL fills lower.',
+          'Entry costs computed per segment (equity-delivery / equity-intraday / options / futures): brokerage + STT + exchange txn + SEBI + stamp duty + GST + DP charges.',
+          'On SL/target hit by the 2-min monitor cron: exit leg gets same slippage + cost treatment. Net P&L = gross − (entry charges + exit charges).',
+          'Break-even price (how far price must move before the trade is profitable AFTER costs) is shown in preview.',
+          'Latency simulated at 400-1600ms to model broker round-trip.',
+        ],
+        tips: [
+          'Check the "Pre-trade preview" before placing — if break-even is far from entry on a tight target, the reward isn\'t worth the risk.',
+          'Options and intraday segments have higher STT + GST impact vs delivery — watch the netPnL carefully.',
+          'Set `segment`, `botId` (when a bot is posting), and `liquidityBand` when creating a paper trade; defaults are equity-delivery / manual / MID.',
+          'FY26 STT rates used; edit CONSTANTS at top of backend/services/paperRealismService.js to tune for your specific broker.',
+          'POST /api/paper-realism/preview with body { segment, entrySide, qty, entryPrice, stopLoss, target, liquidityBand? } to fetch a full preview card.',
+        ],
+      },
     ],
   },
 

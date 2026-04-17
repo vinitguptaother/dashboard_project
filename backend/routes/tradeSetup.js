@@ -539,7 +539,11 @@ router.delete('/:id', async (req, res) => {
 // ─────────────────────────────────────────────
 router.post('/paper', async (req, res) => {
   try {
-    const { symbol, action, entryPrice, stopLoss, target, confidence, reasoning, riskFactors, holdingDuration, tradeType } = req.body;
+    const {
+      symbol, action, entryPrice, stopLoss, target, confidence, reasoning,
+      riskFactors, holdingDuration, tradeType, quantity,
+      segment, botId, liquidityBand,
+    } = req.body;
 
     if (!symbol || !action || !entryPrice || !stopLoss || !target) {
       return res.status(400).json({ status: 'error', message: 'Missing required fields: symbol, action, entryPrice, stopLoss, target' });
@@ -552,12 +556,31 @@ router.post('/paper', async (req, res) => {
     const entry = Number(entryPrice);
     const sl = Number(stopLoss);
     const tgt = Number(target);
+    const qty = Number(quantity) || 0;
 
     let riskRewardRatio = 'N/A';
     if (entry > 0 && sl > 0 && tgt > 0) {
       const risk = Math.abs(entry - sl);
       const reward = Math.abs(tgt - entry);
       if (risk > 0) riskRewardRatio = `1:${(reward / risk).toFixed(1)}`;
+    }
+
+    // BOT_BLUEPRINT #9 — apply entry-side realism if we have a quantity.
+    let entryFillPrice = null, entrySlippageBps = 0, entryCosts = null;
+    const seg = segment || 'equity-delivery';
+    const band = liquidityBand || (seg === 'options' ? 'OPTIONS' : 'MID');
+    if (qty > 0) {
+      try {
+        const realism = require('../services/paperRealismService');
+        const entrySide = action === 'SELL' ? 'SELL' : 'BUY';
+        const slip = realism.applySlippage({ side: entrySide, ltp: entry, liquidityBand: band });
+        const costs = realism.computeLegCosts({ segment: seg, side: entrySide, qty, price: slip.fillPrice });
+        entryFillPrice = slip.fillPrice;
+        entrySlippageBps = slip.slippageBps;
+        entryCosts = costs;
+      } catch (rErr) {
+        apiLogger.warn('TradeSetup', 'paper:realism-entry-skip', { msg: rErr.message });
+      }
     }
 
     const doc = new TradeSetup({
@@ -573,12 +596,19 @@ router.post('/paper', async (req, res) => {
       confidence: Math.min(100, Math.max(0, Number(confidence) || 50)),
       reasoning: reasoning || '',
       riskFactors: Array.isArray(riskFactors) ? riskFactors : [],
+      quantity: qty > 0 ? qty : null,
       isPaperTrade: true,
       source: 'AI_ANALYSIS',
+      segment: seg,
+      botId: botId || 'manual',
+      liquidityBand: band,
+      entryFillPrice,
+      entrySlippageBps,
+      entryCosts,
     });
 
     const saved = await doc.save();
-    apiLogger.info('TradeSetup', 'paper:created', { symbol: saved.symbol, id: saved._id });
+    apiLogger.info('TradeSetup', 'paper:created', { symbol: saved.symbol, id: saved._id, segment: seg, botId: saved.botId, entryFillPrice });
 
     res.json({ status: 'success', data: saved });
   } catch (error) {

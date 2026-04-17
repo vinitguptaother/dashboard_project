@@ -209,6 +209,7 @@ app.use('/api/regime', require('./routes/regime'));
 app.use('/api/sector-rotation', require('./routes/sectorRotation'));
 app.use('/api/corporate-actions', require('./routes/corporateActions'));
 app.use('/api/large-deals', require('./routes/largeDeals'));
+app.use('/api/paper-realism', require('./routes/paperRealism'));
 
 // Error handling middleware
 app.use(errorHandler);
@@ -604,11 +605,43 @@ function startScheduledTasks() {
           updateFields.status = newStatus;
           updateFields.closedAt = new Date();
           updateFields.exitPrice = price;
+
+          // BOT_BLUEPRINT #9 — Realistic Paper Engine: apply slippage + costs on exit.
+          try {
+            const realism = require('./services/paperRealismService');
+            const segment = setup.segment || 'equity-delivery';
+            const liquidityBand = setup.liquidityBand || (segment === 'options' ? 'OPTIONS' : 'MID');
+            const entrySide = (setup.action === 'SELL') ? 'SELL' : 'BUY';
+            const exitSide  = entrySide === 'BUY' ? 'SELL' : 'BUY';
+            const qty = setup.quantity || 0;
+
+            // If entry fill wasn't recorded historically, fall back to entryPrice with zero slippage.
+            const entryFillPrice = setup.entryFillPrice || setup.entryPrice;
+            const exitSlip = realism.applySlippage({ side: exitSide, ltp: price, liquidityBand });
+
+            if (qty > 0) {
+              const rpnl = realism.computeRealisticPnL({
+                segment, entrySide, qty,
+                entryFillPrice,
+                exitFillPrice: exitSlip.fillPrice,
+              });
+              updateFields.exitFillPrice = exitSlip.fillPrice;
+              updateFields.exitSlippageBps = exitSlip.slippageBps;
+              updateFields.exitCosts = rpnl.exitCosts;
+              updateFields.grossPnL = rpnl.grossPnL;
+              updateFields.totalCharges = rpnl.totalCharges;
+              updateFields.netPnL = rpnl.netPnL;
+              updateFields.simulatedLatencyMs = realism.simulateLatencyMs();
+            }
+          } catch (realErr) {
+            console.warn(`⚠️ Realism calc failed for ${setup.symbol}:`, realErr.message);
+          }
         }
         await TradeSetup.findByIdAndUpdate(setup._id, updateFields);
         if (newStatus) {
           updated++;
-          console.log(`🎯 Trade setup ${setup.symbol}: ${newStatus} (price: ₹${price})`);
+          const netSuffix = updateFields.netPnL != null ? ` · net ₹${updateFields.netPnL.toFixed(0)} (chg ₹${updateFields.totalCharges.toFixed(0)})` : '';
+          console.log(`🎯 Trade setup ${setup.symbol}: ${newStatus} (price: ₹${price})${netSuffix}`);
           // Update screen performance feedback loop
           try {
             const { updateScreenPerformance } = require('./services/feedbackService');

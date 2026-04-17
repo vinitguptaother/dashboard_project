@@ -86,6 +86,35 @@ const tradeSetupSchema = new mongoose.Schema({
     enum: ['SCREENER', 'AI_ANALYSIS', 'MANUAL'],
     default: 'SCREENER',
   },
+  // BOT_BLUEPRINT #9 — Realism Engine fields (all optional, default to sensible values
+  // so historical rows without them still render correctly).
+  segment: {
+    type: String,
+    enum: ['equity-delivery', 'equity-intraday', 'options', 'futures'],
+    default: 'equity-delivery',
+  },
+  // 4-bot prep (Sprint 3+). 'manual' covers existing non-bot trades.
+  botId: {
+    type: String,
+    enum: ['manual', 'swing', 'longterm', 'options-sell', 'options-buy'],
+    default: 'manual',
+  },
+  liquidityBand: {
+    type: String,
+    enum: ['LARGE', 'MID', 'SMALL', 'ILLIQUID', 'OPTIONS'],
+    default: 'MID',
+  },
+  // Realistic fill + costs — filled at entry and again at exit
+  entryFillPrice:    { type: Number, default: null },
+  entrySlippageBps:  { type: Number, default: 0 },
+  entryCosts:        { type: Object, default: null },
+  exitFillPrice:     { type: Number, default: null },
+  exitSlippageBps:   { type: Number, default: 0 },
+  exitCosts:         { type: Object, default: null },
+  grossPnL:          { type: Number, default: null },
+  totalCharges:      { type: Number, default: null },
+  netPnL:            { type: Number, default: null },
+  simulatedLatencyMs:{ type: Number, default: null },
   // Track outcome later
   status: {
     type: String,

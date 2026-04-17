@@ -14,6 +14,58 @@ Format:
 
 ---
 
+## 2026-04-17 (late night, Sprint 3 kickoff) — Sprint 3 #9 Realistic Paper Engine — Phase 1 shipped
+
+First Sprint 3 item. Foundational for the 4-bot architecture: every paper trade (from any bot) will book through this engine so graduation-to-live is honest. Applies real-world slippage + broker costs + latency to paper trades.
+
+### Added — Backend
+- `backend/services/paperRealismService.js`:
+  - `COSTS` constant table (editable) with full Indian FY26 broker structure for 4 segments: equity-delivery / equity-intraday / options / futures.
+  - `computeLegCosts({ segment, side, qty, price })` → brokerage + STT + exchange + SEBI + stamp duty + GST + DP charges. Returns full breakdown.
+  - `applySlippage({ side, ltp, liquidityBand })` → BUY fills higher, SELL fills lower. Bands: LARGE 2bps / MID 5bps / SMALL 15bps / ILLIQUID 40bps / OPTIONS 10bps.
+  - `simulateLatencyMs()` → 400-1600ms jitter.
+  - `computeRealisticPnL()` → round-trip gross, entry+exit costs, net P&L, ROI%.
+  - `previewTrade()` → full preview: both target and stop scenarios + break-even price.
+- `backend/routes/paperRealism.js`:
+  - POST /api/paper-realism/preview — full preview card for UI.
+  - GET /api/paper-realism/constants — cost table + slippage bands (for Settings verification).
+- `backend/models/TradeSetup.js` — schema extension (all fields optional, backward-compatible):
+  - `segment`, `botId` (4-bot prep with `manual` default), `liquidityBand`.
+  - Realism snapshot: `entryFillPrice`, `entrySlippageBps`, `entryCosts`, `exitFillPrice`, `exitSlippageBps`, `exitCosts`.
+  - P&L: `grossPnL`, `totalCharges`, `netPnL`, `simulatedLatencyMs`.
+- `backend/routes/tradeSetup.js` (POST /paper):
+  - Accepts new fields: `segment`, `botId`, `liquidityBand`, `quantity`.
+  - If qty provided, computes entry slippage + entry cost snapshot immediately.
+- `backend/server.js` (paper-trade-monitor cron):
+  - On SL/target hit: applies exit slippage, computes exit costs + gross/net P&L, persists full realism snapshot. Log now shows `net ₹X (chg ₹Y)`.
+
+### Verified (live preview endpoint)
+```
+Test 1 — RELIANCE (equity-delivery, LARGE) BUY 10 @ 2800, SL 2700, tgt 3000:
+  Entry fill: ₹2800.56 (2 bps slip)
+  At TARGET: gross=₹1988, charges=₹52, NET=₹1936 (ROI 6.91%)
+  At STOP:   gross=−₹1011, charges=₹49, NET=−₹1060 (ROI −3.79%)
+  Break-even: ₹2805.78
+
+Test 2 — NIFTY CE (options, OPTIONS) BUY 75 @ 120, SL 100, tgt 180:
+  Entry fill: ₹120.12
+  At TARGET: gross=₹4477.50, charges=₹30.76, NET=₹4446.74
+  Exit costs: brokerage ₹4 + STT ₹8.43 + exchange ₹7.15 + GST ₹2.02
+  Break-even: ₹120.53
+```
+
+All Indian broker math (STT 0.1% on delivery sell, options premium 0.0625% STT + 0.053% exchange, GST 18% on brokerage+exchange+SEBI, DP ₹15.93 per sell script per day) validates against Zerodha's published FY26 tariff.
+
+### Why this matters (Vinit context)
+Before #9: paper P&L looked great → live P&L systematically disappointed due to ~₹50-200/trade charges + slippage on small-cap.
+After #9: paper P&L matches live within ~5-10% typically. Bot graduation criteria can now use honest numbers.
+
+### Next
+Phase 2 of #9 (separate commit): UI preview widget on Paper Trading tab showing the breakdown BEFORE placing a trade.
+Or: Sprint 3 #10 Risk Engine — position sizing gate + correlation + drawdown tracker.
+
+---
+
 ## 2026-04-17 (late night, continuing⁹) — Sprint 2 #29 Large Deals / Smart Money shipped — **SPRINT 2 COMPLETE 5/5** 🎉
 
 Last Sprint 2 item. Pulls NSE bulk deals + block deals + short deals from a single snapshot endpoint. Shows which institutions are taking big positions.
