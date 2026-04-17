@@ -14,6 +14,60 @@ Format:
 
 ---
 
+## 2026-04-17 (late night, continuing⁸) — Sprint 2 #27 Corporate Events Calendar shipped
+
+Unified NSE corporate actions (dividends, splits, bonuses, buybacks) AND board meetings (quarterly earnings) in one calendar feed. Critical for avoiding earnings-gap surprises on open positions.
+
+### Added — Backend
+- `backend/models/CorporateEvent.js` — unified schema: symbol, company, isin, kind (`action` | `meeting`), eventDate, subject, rawPurpose, recordDate, description. Unique compound index `(symbol, eventDate, kind, subject)` for safe re-runs.
+- `backend/services/corporateActionsService.js`:
+  - `getNseCookies(referrerPath)` — shared cookie-flow helper.
+  - `fetchCorporateActions()` — hits `/api/corporates-corporateActions?index=equities`, parses NSE date format "17-Apr-2026", normalizes to action events.
+  - `fetchBoardMeetings()` — hits `/api/corporate-board-meetings?index=equities`, stores `bm_desc` (truncated to 400 chars) for tooltip preview.
+  - `refreshAll()` — parallel fetch both, upsert via unique key, returns counts.
+  - `getUpcoming({ days, kind, symbol })` — calendar query window (default 30 days).
+  - `getBySymbol(symbol)` — pre-trade event check.
+- `backend/routes/corporateActions.js` — GET /upcoming, /by-symbol/:symbol, POST /refresh.
+- `backend/server.js`:
+  - Mounted `/api/corporate-actions`.
+  - NEW cron `0 7 * * *` Asia/Kolkata — daily 7 AM IST refresh (before market open). Reports to Cadence.
+
+### Added — Cadence Registry
+- `corporate-actions` daily task (graceMinutes 360, category market-data).
+
+### Added — Frontend
+- `app/components/CorporateEventsWidget.tsx`:
+  - Next 7/14/30-day toggle.
+  - Filter: All / Actions / Earnings.
+  - Events grouped by date with "in Nd" countdown.
+  - Color-coded chips per event type (dividend=emerald, bonus=amber, split=blue, buyback=pink, earnings=purple, other meeting=indigo).
+  - Icon per type (DollarSign, Gift, Scissors, TrendingUp, FileText).
+  - Tooltip shows full NSE description (for board meetings).
+  - Poll every 10 min + manual refresh.
+- `app/components/Dashboard.tsx` — mounted as Section B6 after FII/DII.
+- `app/components/helpContent.ts` — new lesson under "Indian Market Signals" with 5 trading tips including earnings-gap warning + dividend mechanics.
+
+### Verified (live NSE data)
+```
+fetched=31 (actions=11, meetings=20), upserted=31
+count: 26 upcoming events in next 30d
+
+Examples:
+  22-Apr-2026 | action  | CIEINDIA   | Dividend - Rs 7 Per Share
+  22-Apr-2026 | action  | SANOFI     | Dividend - Rs 48 Per Share
+  22-Apr-2026 | meeting | TRENT      | Financial Results/Dividend
+  23-Apr-2026 | meeting | IEX        | Financial Results/Dividend
+  24-Apr-2026 | meeting | RELIANCE   | Financial Results/Dividend
+```
+
+### Sprint 2 status
+4 of 5 done: ✅ #26 FII/DII · ✅ #30 Market Regime · ✅ #28 Sector Rotation · ✅ #27 Corp Events · 🟡 #29 Bulk/Block.
+
+### Next
+#29 Bulk/Block Deals — last Sprint 2 item. Same NSE scraper pattern; should be quick.
+
+---
+
 ## 2026-04-17 (late night, continuing⁷) — Sprint 2 #28 Sector Rotation Heatmap shipped
 
 Natural pair with #30 Regime Engine — both feed the bot Validator layer. Tracks 12 NSE sector indices vs NIFTY 50 benchmark across 1D / 1W / 1M horizons. Shows who's leading (tailwind for longs) and who's lagging (avoid).

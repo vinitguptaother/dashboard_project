@@ -304,6 +304,24 @@ export const HELP_CONTENT: HelpSection[] = [
         ],
       },
       {
+        title: 'Corporate Events Calendar (Dashboard widget)',
+        summary: 'Shows next-30-day calendar of NSE corporate actions (dividends, splits, bonuses, buybacks) + upcoming board meetings (quarterly earnings).',
+        steps: [
+          'Sources: NSE /api/corporates-corporateActions + /api/corporate-board-meetings (both require cookie flow).',
+          'Deduplicated via (symbol, eventDate, kind, subject) — re-runs are safe.',
+          'Widget shows events grouped by date, color-coded by type, with "in Nd" countdown.',
+          'Toggle next 7d / 14d / 30d window; filter All / Actions / Earnings.',
+          'Refresh cadence: daily at 7 AM IST (before market open). Manual refresh button pulls live.',
+        ],
+        tips: [
+          'BEFORE opening a new position, hover the widget to spot earnings inside your holding period — earnings can gap 5-15%.',
+          'Dividend ex-dates move the stock down by ~dividend amount on ex-day (not a loss, just mechanical).',
+          'Stock splits / bonuses adjust charts — historical SL/target levels may need recalculation.',
+          'Buyback ex-dates often see unusual volume and short-term price strength.',
+          'Use symbol tooltips to see the full NSE description for board meetings (specifies exactly what\'ll be discussed).',
+        ],
+      },
+      {
         title: 'Sector Rotation Heatmap (Dashboard widget)',
         summary: 'Shows 12 NSE sector indices color-coded by relative strength vs NIFTY across 1D / 1W / 1M horizons.',
         steps: [

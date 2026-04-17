@@ -126,6 +126,13 @@ const SEED_TASKS = [
     type: 'system', cadence: 'custom', schedule: '15,45 9-15 * * 1-5',
     graceMinutes: 60, category: 'market-data', marketDaysOnly: true,
   },
+  {
+    taskKey: 'corporate-actions',
+    name: 'Corporate Actions + Earnings daily fetch (7 AM IST)',
+    description: 'Pulls NSE corporate actions (div/split/bonus/buyback) + upcoming board meetings (earnings). Drives next-30-day calendar widget + pre-trade event check.',
+    type: 'system', cadence: 'daily', schedule: '0 7 * * *',
+    graceMinutes: 360, category: 'market-data',
+  },
 
   // ── User activities (no automation; user is expected to perform them)
   {

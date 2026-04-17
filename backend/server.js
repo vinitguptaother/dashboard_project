@@ -207,6 +207,7 @@ app.use('/api/cadence', require('./routes/cadence'));
 app.use('/api/fii-dii', require('./routes/fiiDii'));
 app.use('/api/regime', require('./routes/regime'));
 app.use('/api/sector-rotation', require('./routes/sectorRotation'));
+app.use('/api/corporate-actions', require('./routes/corporateActions'));
 
 // Error handling middleware
 app.use(errorHandler);
@@ -807,6 +808,21 @@ function startScheduledTasks() {
     } catch (error) {
       console.error('❌ Sector Rotation error:', error.message);
       cadenceService.reportRun('sector-rotation', 'failure', error.message).catch(() => {});
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+  // Corporate Actions + Earnings — daily 7 AM IST refresh (before market open).
+  // Pulls NSE corporate actions (dividend/split/bonus/buyback) + upcoming board meetings
+  // (quarterly earnings). Events for the next 30 days drive the Dashboard widget.
+  cron.schedule('0 7 * * *', async () => {
+    try {
+      const corpSvc = require('./services/corporateActionsService');
+      const result = await corpSvc.refreshAll();
+      console.log(`📅 Corp Actions: fetched=${result.fetched} (actions=${result.actions}, meetings=${result.meetings}), upserted=${result.upserted}`);
+      cadenceService.reportRun('corporate-actions', 'success', `f=${result.fetched}/u=${result.upserted}`).catch(() => {});
+    } catch (error) {
+      console.error('❌ Corp Actions error:', error.message);
+      cadenceService.reportRun('corporate-actions', 'failure', error.message).catch(() => {});
     }
   }, { timezone: 'Asia/Kolkata' });
 

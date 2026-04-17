@@ -8,6 +8,7 @@ import DailyPnLWidget from './DailyPnLWidget';
 import FiiDiiWidget from './FiiDiiWidget';
 import MarketRegimeWidget from './MarketRegimeWidget';
 import SectorRotationHeatmap from './SectorRotationHeatmap';
+import CorporateEventsWidget from './CorporateEventsWidget';
 
 const BACKEND_URL = 'http://localhost:5002';
 
@@ -379,6 +380,9 @@ const Dashboard = () => {
 
       {/* Section B5: FII / DII flows (Sprint 2 #26 — Indian directional signal) */}
       <FiiDiiWidget />
+
+      {/* Section B6: Corporate Events Calendar (Sprint 2 #27) — dividends, splits, earnings */}
+      <CorporateEventsWidget />
 
       {/* Section C: Active Trade Setups Tracker */}
       {activeSetups.length > 0 && (
