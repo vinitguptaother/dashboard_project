@@ -2,13 +2,13 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "frontend",
+      "name": "Next.js Frontend",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 3000
     },
     {
-      "name": "backend",
+      "name": "Express Backend",
       "runtimeExecutable": "node",
       "runtimeArgs": ["backend/server.js"],
       "port": 5002

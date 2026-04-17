@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { useMarketStatus } from '../hooks/useMarketStatus';
+import TradePreviewCard from './TradePreviewCard';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -97,6 +98,10 @@ const StockSearchTab = () => {
   const [error, setError] = useState<string | null>(null);
   const [paperTradeLoading, setPaperTradeLoading] = useState(false);
   const [paperTradeSaved, setPaperTradeSaved] = useState(false);
+  // Phase 2 realism UI — quantity + segment + liquidity band for preview card
+  const [paperQty, setPaperQty] = useState<number>(0);
+  const [paperSegment, setPaperSegment] = useState<'equity-delivery' | 'equity-intraday' | 'options' | 'futures'>('equity-delivery');
+  const [paperBand, setPaperBand] = useState<'LARGE' | 'MID' | 'SMALL' | 'ILLIQUID' | 'OPTIONS'>('MID');
   const marketStatus = useMarketStatus();
 
   // ── Search stocks ──────────────────────────────────────────────────────────
@@ -326,6 +331,11 @@ const StockSearchTab = () => {
           riskFactors: r.risks || [],
           holdingDuration: r.timeframe,
           tradeType: 'SWING',
+          // Phase 2 realism fields — only sent when user enters quantity
+          quantity: paperQty > 0 ? paperQty : undefined,
+          segment: paperSegment,
+          liquidityBand: paperBand,
+          botId: 'manual',
         }),
       });
       if (resp.ok) {
@@ -407,9 +417,63 @@ const StockSearchTab = () => {
           </div>
         )}
 
-        {/* Paper Trade Button — manual save */}
+        {/* Paper Trade: quantity + segment + realism preview */}
         {['BUY', 'SELL', 'ACCUMULATE'].includes(r.action) && (
-          <div className="mt-4 pt-4 border-t border-gray-200">
+          <div className="mt-4 pt-4 border-t border-gray-200 space-y-3">
+            {/* Mini-form: qty + segment + liquidity band */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div>
+                <label className="block text-[10px] font-semibold uppercase text-gray-500 tracking-wider mb-0.5">Quantity</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={paperQty || ''}
+                  onChange={(e) => setPaperQty(Math.max(0, Number(e.target.value) || 0))}
+                  placeholder="e.g. 10"
+                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono-nums"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold uppercase text-gray-500 tracking-wider mb-0.5">Segment</label>
+                <select
+                  value={paperSegment}
+                  onChange={(e) => setPaperSegment(e.target.value as any)}
+                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="equity-delivery">Delivery</option>
+                  <option value="equity-intraday">Intraday</option>
+                  <option value="options">Options</option>
+                  <option value="futures">Futures</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold uppercase text-gray-500 tracking-wider mb-0.5">Liquidity</label>
+                <select
+                  value={paperBand}
+                  onChange={(e) => setPaperBand(e.target.value as any)}
+                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="LARGE">Large-cap (2 bps)</option>
+                  <option value="MID">Mid-cap (5 bps)</option>
+                  <option value="SMALL">Small-cap (15 bps)</option>
+                  <option value="ILLIQUID">Illiquid (40 bps)</option>
+                  <option value="OPTIONS">Options (10 bps)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Realism preview card (Sprint 3 #9 Phase 2) */}
+            <TradePreviewCard
+              segment={paperSegment}
+              entrySide={r.action === 'SELL' ? 'SELL' : 'BUY'}
+              qty={paperQty}
+              entryPrice={r.entryPrice || analysis.price.currentPrice}
+              stopLoss={r.stopLoss}
+              target={r.targetPrice}
+              liquidityBand={paperBand}
+            />
+
             {paperTradeSaved ? (
               <>
                 <div className="w-full py-2.5 rounded-lg bg-green-50 text-green-700 text-sm font-medium text-center flex items-center justify-center gap-2">
