@@ -294,7 +294,18 @@ async function evaluateTrade(candidate) {
     reasons.push(`Sector ${sector} would reach ${newSectorPct.toFixed(1)}% > max ${s.maxSectorConcentrationPct}% of capital.`);
   }
 
-  // 7) Per-bot concurrent positions + capital cap (new #10)
+  // 7) Per-bot manual kill switch (#11)
+  if (botId && botId !== 'manual') {
+    const keyMap = { 'swing': 'swing', 'longterm': 'longterm', 'options-sell': 'optionsSell', 'options-buy': 'optionsBuy' };
+    const k = keyMap[botId];
+    const bk = k ? s.botKillSwitches?.[k] : null;
+    checks.botKill = { active: !!(bk && bk.active), reason: bk?.reason || '' };
+    if (bk && bk.active) {
+      reasons.push(`Bot ${botId} kill switch is active${bk.reason ? ': ' + bk.reason : '.'}`);
+    }
+  }
+
+  // 8) Per-bot concurrent positions + capital cap (new #10)
   if (botId && botId !== 'manual') {
     const keyMap = { 'swing': 'swing', 'longterm': 'longterm', 'options-sell': 'optionsSell', 'options-buy': 'optionsBuy' };
     const k = keyMap[botId];

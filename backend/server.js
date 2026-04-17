@@ -211,6 +211,7 @@ app.use('/api/corporate-actions', require('./routes/corporateActions'));
 app.use('/api/large-deals', require('./routes/largeDeals'));
 app.use('/api/paper-realism', require('./routes/paperRealism'));
 app.use('/api/risk-engine', require('./routes/riskEngine'));
+app.use('/api/kill-switches', require('./routes/killSwitches'));
 
 // Error handling middleware
 app.use(errorHandler);

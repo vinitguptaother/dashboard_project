@@ -14,6 +14,66 @@ Format:
 
 ---
 
+## 2026-04-17 (late night, Sprint 3 continuing²) — Sprint 3 #11 Kill Switch Board shipped
+
+One surface for every trading halt state + a panic button. Aggregates Sprint 1 auto-trips (#15, #16) + Sprint 3 #10 drawdown lockout + NEW per-bot manual kills. Every activation/clearance logged for the future SEBI Compliance Log (#46).
+
+### Added — Backend
+- `backend/models/KillSwitchEvent.js` — audit log. Fields: kind (daily-loss/post-loss-cooldown/drawdown/bot-kill/panic), action (activate/clear), botId, trigger (auto/manual), reason, metadata, at. Indexed for "recent events" query.
+- `backend/models/RiskSettings.js` — extended with `botKillSwitches` per-bot object (active, reason, activatedAt) for swing/longterm/optionsSell/optionsBuy.
+- `backend/services/killSwitchService.js`:
+  - `getUnifiedState()` — aggregates daily-loss breaker + cooldown + drawdown lockout + per-bot kills into one `{ globalBlocked, blockers[], perBot{} }` response. `globalBlocked = true` only for global-scope blockers (not bot-kills, which are bot-specific).
+  - `activateBotKill(botId, reason)` / `clearBotKill(botId, reason)` — writes RiskSettings + logs event.
+  - `panic(reason)` — trips kill switch + drawdown lockout + ALL bot kills with one call. Logs `kind=panic, action=activate, botId=all`.
+  - `clearAll(reason)` — clears everything; requires explicit confirmation at route layer.
+  - `getRecentEvents(limit)` — audit feed.
+  - `isBotKilled(botId)` — helper used by evaluateTrade().
+- `backend/routes/killSwitches.js`:
+  - GET /state, GET /history?limit=N
+  - POST /bot-kill { botId, reason? }
+  - POST /bot-kill/clear { botId, reason? }
+  - POST /panic { confirmation: "PANIC", reason? }
+  - POST /clear-all { confirmation: "UNLOCK", reason? }
+- `backend/services/riskEngineService.js` — `evaluateTrade()` now runs a NEW check (#7): per-bot kill switch. A killed bot\'s trades are rejected with reason text.
+- `backend/server.js` — mounted `/api/kill-switches`.
+
+### Added — Frontend
+- `app/components/KillSwitchBoard.tsx`:
+  - Header color-codes overall state: green (all clear) · amber (some bot killed) · red (global blocker active).
+  - Blockers list — one row per active kill, with per-row Clear button that hits the right endpoint.
+  - Cooldown countdown (live m/s remaining).
+  - Per-bot 2×2 grid of toggle cards — click to kill (prompts reason) or clear.
+  - Bottom: Clear-all (conditional) + PANIC (red button with confirm + reason prompt).
+  - History panel (toggleable) — last 10 events with trigger + bot + reason + time-ago.
+  - Polls `/api/kill-switches/state` + `/history` every 30s.
+- `app/components/Dashboard.tsx` — mounted as Section B2c (right after Risk Engine panel).
+- `app/components/helpContent.ts` — new `kill-switches` section with 4 lessons.
+
+### Verified (live)
+```
+1) state: globalBlocked=false, all bots=LIVE
+2) POST /bot-kill {botId:swing,reason:"testing"} → swing=true
+3) evaluate(HDFCBANK swing) → ALLOWED=false
+   ❌ Bot swing kill switch is active: testing
+4) POST /bot-kill/clear {botId:swing} → swing=false
+5) history:
+   8:07:56 pm | clear    | bot-kill | swing | manual | —
+   8:07:56 pm | activate | bot-kill | swing | manual | testing
+```
+
+### Why this matters (Vinit context)
+Before #11: kill states were scattered — daily-loss breaker in one panel, cooldown in a banner, drawdown lockout hidden in Risk Engine. If multiple fired you had to visit 3 places to diagnose.
+After #11: one board shows "am I locked out, why, and how do I clear each one?" The panic button gives you a single emergency stop. The history feed is the foundation for SEBI algo compliance (#46).
+
+### Sprint 3 progress
+✅ #9 Realism Engine · ✅ #10 Risk Engine · ✅ #11 Kill Switches
+**Remaining:** #5 Scanner · #6 Validator · #7 Executor · #46 SEBI Compliance Log
+
+### Next
+Recommend **#46 SEBI Compliance Log** — we already have KillSwitchEvent for kill audit; extend to log every bot decision (rejected + accepted) with algo-ID + reasoning. This must exist before Scanner/Validator start posting trades, so the first bot decision is auditable from Day 1 per the blueprint lock.
+
+---
+
 ## 2026-04-17 (late night, Sprint 3 continuing) — Sprint 3 #10 Risk Engine shipped
 
 Unified portfolio risk gate that aggregates Sprint 1 items (#14 Position Sizing, #15 Daily Loss Breaker, #16 Post-Loss Cooldown) and adds three new capabilities: **drawdown tracker**, **sector concentration cap**, and **per-bot capital allocation**. Single `evaluateTrade()` call that gates every bot/manual paper trade in Sprint 4+.

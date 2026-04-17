@@ -11,6 +11,7 @@ import SectorRotationHeatmap from './SectorRotationHeatmap';
 import CorporateEventsWidget from './CorporateEventsWidget';
 import LargeDealsWidget from './LargeDealsWidget';
 import RiskEnginePanel from './RiskEnginePanel';
+import KillSwitchBoard from './KillSwitchBoard';
 
 const BACKEND_URL = 'http://localhost:5002';
 
@@ -376,6 +377,9 @@ const Dashboard = () => {
 
       {/* Section B2b: Risk Engine (Sprint 3 #10) — portfolio drawdown + sector + bot caps */}
       <RiskEnginePanel />
+
+      {/* Section B2c: Kill Switch Board (Sprint 3 #11) — unified kill status + panic button */}
+      <KillSwitchBoard />
 
       {/* Section B3: Market Regime (Sprint 2 #30) — top of Indian-signals row */}
       <MarketRegimeWidget />

@@ -114,6 +114,15 @@ const riskSettingsSchema = new mongoose.Schema({
     type: Date, default: null,
   },
 
+  // BOT_BLUEPRINT #11 — Per-bot manual kill switches. One bot can be killed
+  // without halting the others. `all` flag is set by Panic button.
+  botKillSwitches: {
+    swing:       { active: { type: Boolean, default: false }, reason: { type: String, default: '' }, activatedAt: { type: Date, default: null } },
+    longterm:    { active: { type: Boolean, default: false }, reason: { type: String, default: '' }, activatedAt: { type: Date, default: null } },
+    optionsSell: { active: { type: Boolean, default: false }, reason: { type: String, default: '' }, activatedAt: { type: Date, default: null } },
+    optionsBuy:  { active: { type: Boolean, default: false }, reason: { type: String, default: '' }, activatedAt: { type: Date, default: null } },
+  },
+
   updatedAt: {
     type: Date,
     default: Date.now,

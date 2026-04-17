@@ -435,6 +435,63 @@ export const HELP_CONTENT: HelpSection[] = [
     ],
   },
 
+  // ─── Kill Switch Board (Sprint 3 #11) ─────────────────────────────────────
+  {
+    id: 'kill-switches',
+    title: 'Kill Switch Board',
+    intro: 'One surface for every trading halt — daily-loss, post-loss cooldown, drawdown lockout, per-bot kills, and a panic button.',
+    lessons: [
+      {
+        title: 'Global blockers (auto-tripped)',
+        summary: 'The 3 auto-triggered kill states. Any one active = no new trades.',
+        steps: [
+          '**Daily Loss Breaker (#15)** — trips when today\'s net P&L hits the limit (default 5%). Auto-resets midnight IST. Clear via "Clear" button or /api/risk/kill-switch/override with confirmation "UNLOCK".',
+          '**Post-Loss Cooldown (#16)** — 30-minute auto-lock after 2 consecutive losses. Shows countdown. Clear requires no typed confirmation (lighter friction).',
+          '**Drawdown Lockout (#10)** — trips when equity drops ≥ maxDrawdownPct from peak (default 15%). Computed at 3:35 PM EOD cron. Clear requires "UNLOCK".',
+        ],
+        tips: [
+          'Don\'t reflexively clear a blocker — read WHY it tripped first. Often the market is telling you something.',
+          'If multiple blockers fire on the same day, that\'s a strong signal to stop trading for the day regardless.',
+        ],
+      },
+      {
+        title: 'Per-bot kill switches (manual)',
+        summary: 'Kill a single bot (swing / long-term / options-sell / options-buy) without halting the other three.',
+        steps: [
+          'Click a bot card → prompts for reason → bot is killed.',
+          'Killed bots are blocked inside evaluateTrade() — trades they submit get rejected.',
+          'Other bots + manual trades continue normally.',
+          'Click "KILLED" card again to re-enable.',
+        ],
+        tips: [
+          'Useful mid-session: if your Options Sell strategy isn\'t working today, kill just that bot.',
+          'Each kill is logged in the audit trail (for SEBI compliance #46).',
+        ],
+      },
+      {
+        title: 'Panic button',
+        summary: 'Nuclear option: trips daily-loss kill + drawdown lockout + all 4 bot kills with one click.',
+        steps: [
+          'Requires a typed reason (prompt).',
+          'Backend confirmation "PANIC" prevents accidental triggering.',
+          'Everything has to be manually cleared afterward — by design.',
+        ],
+        tips: [
+          'Use when you\'re tilting, a black-swan event hits, or you\'re suspicious of a bot bug.',
+          'Prefer "Clear all" (not automatic) on resume — gives you a moment to review before going back live.',
+        ],
+      },
+      {
+        title: 'Event history + compliance',
+        summary: 'Every activation + clearance logged with timestamp, trigger (auto/manual), bot, reason.',
+        tips: [
+          'Click the history icon to expand the event log.',
+          'This feed is the source for the future SEBI Compliance Log (#46) required for live algo trading.',
+        ],
+      },
+    ],
+  },
+
   // ─── System self-awareness ────────────────────────────────────────────────
   {
     id: 'system-health',
