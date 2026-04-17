@@ -14,6 +14,92 @@ Format:
 
 ---
 
+## 2026-04-17 (late night, continuing⁴) — Dashboard self-awareness suite (Help tab + Cadence Registry + Alerts Bell)
+
+Triggered by user's 5 new rules (added to CLAUDE.md §Work Style):
+1. Speed + completion focus. 2. No rest suggestions. 3. Build-then-verify.
+4. Every feature must go into Help/Instructions tab in same commit.
+5. Every scheduled activity must be registered in Cadence Registry.
+
+Built all 3 new features end-to-end:
+
+### Feature A — Help / Instructions Tab
+- `app/components/helpContent.ts` — single source of truth for in-app docs,
+  data-driven (sections + lessons). 10 sections covering Getting Started,
+  Dashboard, Options, Screens, Paper Trading, Trade Journal, Discipline
+  Layer, System Health, Settings, and Bot Command Center (Sprint 3+).
+- `app/components/HelpTab.tsx` — rendered with search box + left-sidebar
+  navigation + right content pane. Supports URL #hash anchors for
+  deep-linking (e.g. Options tab can link to #options).
+- `app/components/Navigation.tsx` — new "Help" top-level tab (BookOpen icon)
+  between Control and Settings.
+- `app/page.tsx` — routes activeTab='help' to <HelpTab />.
+- User rule #4: every new feature shipped henceforth MUST update helpContent.ts.
+
+### Feature B — Cadence Registry (dashboard self-awareness)
+Backend:
+- `backend/models/CadenceTask.js` — unified schema for both system crons AND
+  user activities. Fields: taskKey (unique), name, description, type,
+  cadence (daily/weekly/monthly/quarterly/yearly/on-demand/custom),
+  schedule, timezone, graceMinutes, lastRunAt, lastRunStatus, expectedNextRun,
+  status (on-track/due-soon/missed/stale/disabled), missedCount, enabled,
+  category, marketDaysOnly.
+- `backend/services/cadenceService.js` — seed (idempotent upsert of 18
+  known tasks: 13 system crons + 5 user activities) + reportRun helper
+  + watchdog evaluateAll. Pure-fn computeNextRun per cadence type.
+- `backend/routes/cadence.js` — 5 endpoints: /list (filterable), /missed,
+  /summary (byStatus aggregation), /run-check, /acknowledge/:taskKey.
+- `backend/server.js`:
+  - seedCadenceTasks() on boot
+  - NEW watchdog cron every 30min → evaluateAll → flags missed tasks
+  - Retrofitted 9 existing crons with reportRun calls: holiday-refresh,
+    market-data-update, news-fetch, cache-clear, api-usage-reset,
+    kill-switch-reset, instruments-weekly, paper-trade-monitor,
+    auto-expiry, screen-scoring, iv-snapshot
+- User rule #5: every new scheduled activity MUST be seeded here.
+
+### Feature C — Missed-Task Alerts UI
+- `app/hooks/useCadenceAlerts.ts` — polls /cadence/summary + /missed every
+  60s. Exposes { missedCount, missedTasks, acknowledge, refresh, ... }.
+- `app/components/CadenceAlertsBell.tsx` — floating bell bottom-left:
+  - Color codes severity: quiet (gray, 0 missed), amber (1-2), red (3+)
+  - Red badge with count on bell
+  - Click → dropdown panel with missed tasks + Acknowledge button for user-type
+  - One-shot toast on initial load if misses > 0
+- `app/page.tsx` — mounted bell alongside DailyLossLockOverlay + cooldown banner.
+
+### Verified
+- API: /api/cadence/summary returned byStatus: { 'on-track': 18, missed: 0 }, total: 18 ✅
+- API: /api/cadence/list returned 18 seeded tasks ✅
+- Boot log: "📋 Cadence Registry: 18 tasks seeded/verified" ✅
+- Browser: Help tab renders with sidebar + 10 sections + search + active-highlight + lesson content ✅
+- Browser: Bell DOM present at (16, 993) with title "Cadence: all on track" ✅
+- `validate:quick`: TypeScript ✅ ESLint ✅ Backend Syntax ✅ Smoke 17/17 ✅ → PIPELINE GREEN
+
+### Gotcha
+- Next.js dev server needed a FULL restart (not just HMR) to pick up the new
+  `case 'help'` in page.tsx. HMR kept stale switch statement. Common issue
+  when adding new switch branches during an active dev session.
+
+### Files this commit
+- MODIFIED: `CLAUDE.md` — added §Work Style with user's 5 rules
+- NEW: `app/components/helpContent.ts`
+- NEW: `app/components/HelpTab.tsx`
+- MODIFIED: `app/components/Navigation.tsx` — Help tab added
+- MODIFIED: `app/page.tsx` — Help routing + CadenceAlertsBell mount
+- NEW: `backend/models/CadenceTask.js`
+- NEW: `backend/services/cadenceService.js`
+- NEW: `backend/routes/cadence.js`
+- MODIFIED: `backend/server.js` — seed + watchdog + 11 cron retrofits + route mount
+- NEW: `app/hooks/useCadenceAlerts.ts`
+- NEW: `app/components/CadenceAlertsBell.tsx`
+- MODIFIED: `project_logs/CHANGELOG.md`, `STATE.md`, `ROADMAP.md`
+
+### Next
+Resuming Sprint 2: #26 FII/DII Dashboard.
+
+---
+
 ## 2026-04-17 (late night, continuing³) — Sprint 1 #14 + #16 shipped → Sprint 1 COMPLETE (9/9)
 
 Continuing past #17/#18. Shipped the last two Sprint 1 items in one push to close out the discipline loop.

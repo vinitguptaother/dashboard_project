@@ -11,6 +11,13 @@ Before writing any code, read:
 ## 💾 ALWAYS TAKE A BACKUP BEFORE MAKING CHANGES
 User's explicit rule: before starting any code work in a session, run `npm run backup` (or `npm run backup:force` if validation is RED). Backup goes to `F:\Dashboard backup\last-known-good\`. Living Blueprint auto-regenerates as part of this. Never skip this step, even if the task feels small — you cannot know how it will expand.
 
+## 🏃 WORK STYLE — User's explicit rules (locked 2026-04-17)
+1. **Speed + completion focus.** User wants to ship features fast, not pause for test cycles. Testing happens in parallel but is not a gate. Many projects queued after this one.
+2. **Do NOT suggest rest / breaks / "stopping points".** Keep building unless there's a genuine technical blocker (pipeline RED, data loss, missing requirement). Do not offer "we've done a lot, shall we stop?" — user explicitly forbids it.
+3. **Build-then-verify, not plan-forever-then-build.** Keep planning bursts short; spend time executing.
+4. **Every feature must be added to the instructions/Help tab.** When a new feature ships, update `app/components/HelpTab.tsx` with usage docs in the same commit.
+5. **Every scheduled activity must be registered in the Cadence Registry.** When a new cron or daily/weekly/monthly duty ships, seed it in `CadenceTask` so missed-task detection works. User's dashboard should be self-aware of its duties.
+
 ## 📝 END OF SESSION — Log maintenance (NON-NEGOTIABLE)
 If this session produced **meaningful changes** (feature shipped, bug fixed, plan discussed/agreed, architecture decision made), before ending the turn:
 

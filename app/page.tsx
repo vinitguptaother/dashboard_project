@@ -19,10 +19,12 @@ import OptionsTab from './components/options/OptionsTab';
 import ActivitySummaryTab from './components/ActivitySummaryTab';
 import DataHealthPanel from './components/DataHealthPanel';
 import ControlCenterTab from './components/ControlCenterTab';
+import HelpTab from './components/HelpTab';
 import AIChatbot from './components/AIChatbot';
 import StickyNotes from './components/StickyNotes';
 import DailyLossLockOverlay from './components/DailyLossLockOverlay';
 import PostLossCooldownBanner from './components/PostLossCooldownBanner';
+import CadenceAlertsBell from './components/CadenceAlertsBell';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -61,6 +63,8 @@ export default function Home() {
         return <DataHealthPanel />;
       case 'control-center':
         return <ControlCenterTab />;
+      case 'help':
+        return <HelpTab />;
       case 'settings':
         return <SettingsTab />;
       default:
@@ -82,6 +86,8 @@ export default function Home() {
       <PostLossCooldownBanner />
       {/* Daily Loss Circuit Breaker — blocks UI when daily P&L breaches limit */}
       <DailyLossLockOverlay />
+      {/* Cadence Registry alerts — floating bell for missed scheduled duties */}
+      <CadenceAlertsBell />
     </div>
   );
 }

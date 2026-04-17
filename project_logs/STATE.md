@@ -75,7 +75,14 @@ Build a personal AI-powered trading dashboard for Vinit (Indian retail, real-mon
 - ✅ **#14 Position Sizing Hard Gate — shipped.** PreTradeGate computes max-loss vs capital×riskPerTradePct, auto-syncs the "Risk acceptable" check, hard-blocks submit when violated (red "🚫 Blocked — Reduce Size" button).
 - ✅ **#16 Post-Loss Cooldown — shipped.** 2 consecutive losses auto-trigger 30-min cooldown via `/api/trade-journal/entry`. Amber top banner with MM:SS countdown + one-click clear (lighter friction tier than full lock).
 
-🎯 **Sprint 1 COMPLETE — 9 of 9 items done.** Next: Sprint 2 (Indian feeds: FII/DII, corp actions, sector rotation, bulk/block, market regime).
+🎯 **Sprint 1 COMPLETE — 9 of 9 items done.**
+
+### Post-Sprint 1 additions (per user's 5 new rules):
+- ✅ **Help / Instructions Tab** — data-driven docs with 10 sections; per rule #4, every new feature must update `helpContent.ts`.
+- ✅ **Cadence Registry** — 18 scheduled tasks (13 system crons + 5 user activities) with heartbeat + watchdog. Per rule #5, every new cron must register here.
+- ✅ **Cadence Alerts Bell** — floating bell bottom-left, color-coded severity, one-shot toast on load, acknowledge button for user tasks.
+
+Next: Sprint 2 (Indian feeds: FII/DII, corp actions, sector rotation, bulk/block, market regime).
 - 🟡 #16 Post-Loss Cooldown — next up
 - 🟡 #17 Auto Journal — next up
 - 🟡 #18 Mistake Tagging — next up

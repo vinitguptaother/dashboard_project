@@ -203,6 +203,7 @@ app.use('/api/control-center', require('./routes/controlCenter'));
 app.use('/api/trade-replay', require('./routes/tradeReplay'));
 app.use('/api/trade-checklist', require('./routes/tradeChecklist'));
 app.use('/api/trade-journal', require('./routes/tradeJournal'));
+app.use('/api/cadence', require('./routes/cadence'));
 
 // Error handling middleware
 app.use(errorHandler);
@@ -253,18 +254,39 @@ startServer(PORT);
 const { isMarketOpen, getMarketState } = require('./utils/marketHours');
 const holidayService = require('./services/holidayService');
 
+// Cadence Registry (BOT_BLUEPRINT dashboard self-awareness)
+const cadenceService = require('./services/cadenceService');
+
 // Scheduled tasks
 function startScheduledTasks() {
   console.log('📅 Starting scheduled tasks...');
+
+  // ── Seed Cadence Registry (idempotent) ─────────────────────────────────────
+  cadenceService.seedCadenceTasks()
+    .then(n => console.log(`📋 Cadence Registry: ${n} tasks seeded/verified`))
+    .catch(e => console.error('❌ Cadence seed error:', e.message));
 
   // ── Holiday list refresh on startup + daily at 6 AM IST (00:30 UTC) ────────
   holidayService.refreshHolidays().then(r => {
     const state = getMarketState(new Date(), r.holidays);
     console.log(`📅 Market state: ${state.state} (${state.istTime} IST, ${r.holidays.length} holidays, source: ${r.source})`);
+    cadenceService.reportRun('holiday-refresh', 'success', `${r.holidays.length} holidays (${r.source})`).catch(() => {});
   });
   cron.schedule('30 0 * * *', async () => {
-    try { await holidayService.refreshHolidays(); }
-    catch (e) { console.error('❌ Holiday refresh error:', e.message); }
+    try {
+      await holidayService.refreshHolidays();
+      cadenceService.reportRun('holiday-refresh', 'success').catch(() => {});
+    }
+    catch (e) { console.error('❌ Holiday refresh error:', e.message); cadenceService.reportRun('holiday-refresh', 'failure', e.message).catch(() => {}); }
+  });
+
+  // Cadence watchdog — evaluates all tasks for missed status every 30 minutes.
+  cron.schedule('*/30 * * * *', async () => {
+    try {
+      const result = await cadenceService.evaluateAll();
+      if (result.missed > 0) console.log(`⚠️  Cadence watchdog: ${result.missed} task(s) missed`);
+      cadenceService.reportRun('cadence-watchdog', 'success', `missed=${result.missed} onTrack=${result.onTrack}`).catch(() => {});
+    } catch (e) { console.error('❌ Cadence watchdog error:', e.message); }
   });
 
   // Update market data every 2 minutes during market hours (guarded)
@@ -275,8 +297,10 @@ function startScheduledTasks() {
       console.log('🔄 Updating market data...');
       const symbols = ['NIFTY', 'SENSEX', 'BANKNIFTY', 'RELIANCE', 'TCS', 'HDFC', 'INFY'];
       await marketDataService.getBatchMarketData(symbols);
+      cadenceService.reportRun('market-data-update', 'success').catch(() => {});
     } catch (error) {
       console.error('❌ Market data update error:', error.message);
+      cadenceService.reportRun('market-data-update', 'failure', error.message).catch(() => {});
     }
   });
 
@@ -285,8 +309,10 @@ function startScheduledTasks() {
     try {
       console.log('📰 Fetching latest news...');
       await newsService.fetchExternalNews();
+      cadenceService.reportRun('news-fetch', 'success').catch(() => {});
     } catch (error) {
       console.error('❌ News fetch error:', error.message);
+      cadenceService.reportRun('news-fetch', 'failure', error.message).catch(() => {});
     }
   });
 
@@ -295,6 +321,7 @@ function startScheduledTasks() {
     console.log('🧹 Clearing service caches...');
     marketDataService.clearCache();
     newsService.clearCache();
+    cadenceService.reportRun('cache-clear', 'success').catch(() => {});
   });
 
   // Reset daily API usage counters at midnight
@@ -306,8 +333,10 @@ function startScheduledTasks() {
         { isActive: true },
         { $set: { 'usage.requestsToday': 0 } }
       );
+      cadenceService.reportRun('api-usage-reset', 'success').catch(() => {});
     } catch (error) {
       console.error('❌ Reset usage counters error:', error.message);
+      cadenceService.reportRun('api-usage-reset', 'failure', error.message).catch(() => {});
     }
   });
 
@@ -330,8 +359,10 @@ function startScheduledTasks() {
           timestamp: new Date().toISOString(),
         });
       }
+      cadenceService.reportRun('kill-switch-reset', 'success').catch(() => {});
     } catch (error) {
       console.error('❌ Kill switch reset error:', error.message);
+      cadenceService.reportRun('kill-switch-reset', 'failure', error.message).catch(() => {});
     }
   });
 
@@ -342,8 +373,10 @@ function startScheduledTasks() {
       console.log('📥 Weekly full instruments download starting...');
       const { importInstruments } = require('./scripts/downloadInstruments');
       await importInstruments(false);
+      cadenceService.reportRun('instruments-weekly', 'success').catch(() => {});
     } catch (error) {
       console.error('❌ Weekly instruments download error:', error.message);
+      cadenceService.reportRun('instruments-weekly', 'failure', error.message).catch(() => {});
     }
   });
 
@@ -639,8 +672,10 @@ function startScheduledTasks() {
           console.error('Daily P&L check error:', pnlErr.message);
         }
       }
+      cadenceService.reportRun('paper-trade-monitor', 'success').catch(() => {});
     } catch (error) {
       console.error('❌ Trade setup monitor error:', error.message);
+      cadenceService.reportRun('paper-trade-monitor', 'failure', error.message).catch(() => {});
     }
   });
 
@@ -694,8 +729,10 @@ function startScheduledTasks() {
       if (expired > 0) {
         console.log(`⏰ Auto-expiry: ${expired} setups expired out of ${activeSetups.length} active`);
       }
+      cadenceService.reportRun('auto-expiry', 'success', `expired=${expired}/${activeSetups.length}`).catch(() => {});
     } catch (error) {
       console.error('❌ Auto-expiry cron error:', error.message);
+      cadenceService.reportRun('auto-expiry', 'failure', error.message).catch(() => {});
     }
   });
 
@@ -707,8 +744,10 @@ function startScheduledTasks() {
       const { scoreAllScreens } = require('./services/screenScoringService');
       const results = await scoreAllScreens();
       console.log(`📊 Nightly scoring complete: ${results.length} screens scored`);
+      cadenceService.reportRun('screen-scoring', 'success', `${results.length} screens scored`).catch(() => {});
     } catch (error) {
       console.error('❌ Nightly screen scoring error:', error.message);
+      cadenceService.reportRun('screen-scoring', 'failure', error.message).catch(() => {});
     }
   });
 
@@ -727,8 +766,10 @@ function startScheduledTasks() {
       );
       const ok = results.filter(r => r.status === 'fulfilled' && r.value).length;
       console.log(`📊 IV snapshots: ${ok}/${underlyings.length} captured`);
+      cadenceService.reportRun('iv-snapshot', 'success', `${ok}/${underlyings.length} underlyings captured`).catch(() => {});
     } catch (error) {
       console.error('❌ Daily IV snapshot error:', error.message);
+      cadenceService.reportRun('iv-snapshot', 'failure', error.message).catch(() => {});
     }
   }, { timezone: 'Asia/Kolkata' });
 }
