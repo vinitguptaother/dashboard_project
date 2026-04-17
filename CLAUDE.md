@@ -2,10 +2,14 @@
 
 ## 📂 FIRST STEP EVERY SESSION
 Before writing any code, read:
-1. `project_logs/STATE.md` — where we are + next 3 steps + file inventory
-2. `project_logs/ROADMAP.md` — what's planned next and why
-3. `project_logs/BLUEPRINT.md` — vision, stack, principles (if unfamiliar)
-4. `project_logs/CHANGELOG.md` — only if you need recent history or lessons
+1. `project_logs/BOT_BLUEPRINT.md` — **canonical source of truth** (49 features, 4-bot architecture, locked decisions)
+2. `project_logs/STATE.md` — where we are + next 3 steps + file inventory
+3. `project_logs/ROADMAP.md` — 6-sprint build order + priorities
+4. `project_logs/BLUEPRINT.md` — original vision, stack, principles (if unfamiliar)
+5. `project_logs/CHANGELOG.md` — only if you need recent history or lessons
+
+## 💾 ALWAYS TAKE A BACKUP BEFORE MAKING CHANGES
+User's explicit rule: before starting any code work in a session, run `npm run backup` (or `npm run backup:force` if validation is RED). Backup goes to `F:\Dashboard backup\last-known-good\`. Living Blueprint auto-regenerates as part of this. Never skip this step, even if the task feels small — you cannot know how it will expand.
 
 ## 📝 END OF SESSION — Log maintenance (NON-NEGOTIABLE)
 If this session produced **meaningful changes** (feature shipped, bug fixed, plan discussed/agreed, architecture decision made), before ending the turn:

@@ -63,13 +63,24 @@ Build a personal AI-powered trading dashboard for Vinit (Indian retail, real-mon
 
 ---
 
+## 🟢 Pipeline State (2026-04-17 late night)
+
+- ✅ TypeScript: GREEN
+- ✅ ESLint: GREEN (new panels' unescaped-entities errors fixed)
+- ✅ Backend Syntax: GREEN
+- ✅ Smoke Tests: 17/17 PASSED (including new loopback-bypass check)
+- ⏸ Next.js Build: not part of `:quick` (runs on full `npm run validate`)
+
+**Dashboard is now in TRUSTED state.** Next backup taken from here will be marked trusted (no `--force`).
+
 ## 🔴 Known Issues (Not Critical)
 
 1. Individual stock quotes from Upstox sometimes return null (RELIANCE, TCS, INFY, HDFC) — index prices unaffected
 2. `Cannot read properties of null (reading 'error')` — null-check bug in market data refresh, core features still work
 3. React 18 delegated events: `preview_click` tool can't trigger React state — workaround: use `data-testid` + 1400px viewport or test via API directly
 4. ~~**Settings → API Keys UI requires login**~~ — **FIXED 2026-04-17** via localhost bypass in `backend/middleware/auth.js`. Loopback requests now get auto-populated `req.user` from first active MongoDB user. UI-driven key management works end-to-end.
-5. **Pre-existing ESLint debt**: 5 errors (unescaped quotes in DataHealthPanel, SystemHealthPanel) + 8 React Hook exhaustive-deps warnings. Not blocking but causes `npm run backup` to require `--force`.
+5. ~~**Pre-existing ESLint debt (5 errors)**~~ — **FIXED 2026-04-17 late night.** 7 `react/no-unescaped-entities` errors across ControlCenterTab / DataHealthPanel / SystemHealthPanel resolved. ESLint is now GREEN. 8 React Hook `exhaustive-deps` warnings remain (warnings only, not errors — see CHANGELOG for full list).
+6. **Auth token key mismatch** ~~(silent auth failure)~~ — **FIXED 2026-04-17 late night.** `apiService.ts` set `auth_token` but `APIKeysTab` + `SettingsTab` password-change read `token` (always null). Unified all reads to `auth_token`.
 
 ## 🔐 Security state (post 2026-04-17 audit)
 

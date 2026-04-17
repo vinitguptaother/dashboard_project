@@ -65,7 +65,7 @@ const APIKeysTab = () => {
   const fetchEnvironmentVariables = async () => {
     try {
       setIsLoading(true);
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('auth_token');
       
       const headers: HeadersInit = {
         'Content-Type': 'application/json'
@@ -107,7 +107,7 @@ const APIKeysTab = () => {
 
   const fetchSchema = async () => {
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('auth_token');
       
       const headers: HeadersInit = {
         'Content-Type': 'application/json'
@@ -202,7 +202,7 @@ const APIKeysTab = () => {
         return;
       }
       
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('auth_token');
       
       const headers: HeadersInit = {
         'Content-Type': 'application/json'

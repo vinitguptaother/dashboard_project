@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Settings, User, Bell, Shield, Palette, Database, Download, Key, CheckCircle, Save, Activity } from 'lucide-react';
+import { Settings, User, Bell, Shield, Palette, Database, Download, Key, CheckCircle, Save, Activity, HeartPulse } from 'lucide-react';
 import { AuthClient } from '../lib/apiService';
 import APIKeysTab from './APIKeysTab';
+import SystemHealthPanel from './SystemHealthPanel';
 
 const BACKEND_URL = 'http://localhost:5002';
 const SETTINGS_KEY = 'dashboard_settings';
@@ -83,7 +84,8 @@ const SettingsTab = () => {
     { id: 'display', label: 'Display', icon: Palette },
     { id: 'security', label: 'Security', icon: Shield },
     { id: 'data', label: 'Data & Export', icon: Database },
-    { id: 'api-usage', label: 'API Usage', icon: Activity }
+    { id: 'api-usage', label: 'API Usage', icon: Activity },
+    { id: 'system-health', label: 'System Health', icon: HeartPulse }
   ];
 
   const handleSettingChange = (section: string, key: string, value: any) => {
@@ -482,7 +484,7 @@ const SettingsTab = () => {
               if (changePwForm.newPw !== changePwForm.confirm) { setPwMessage('New passwords do not match.'); return; }
               if (changePwForm.newPw.length < 6) { setPwMessage('Password must be at least 6 characters.'); return; }
               try {
-                const token = localStorage.getItem('token');
+                const token = localStorage.getItem('auth_token');
                 const res = await fetch(`${BACKEND_URL}/api/auth/change-password`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -757,6 +759,7 @@ const SettingsTab = () => {
       case 'security': return renderSecuritySettings();
       case 'data': return renderDataSettings();
       case 'api-usage': return renderAPIUsage();
+      case 'system-health': return <SystemHealthPanel />;
       default: return renderProfileSettings();
     }
   };

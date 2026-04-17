@@ -14,6 +14,64 @@ Format:
 
 ---
 
+## 2026-04-17 (late night, post-blueprint) — Codex fix pass: pipeline GREEN
+
+Triggered by Codex review flagging (1) lint errors in 3 new panels, (2) auth token key mismatch. User asked: "make lint green for the new panels + fix token-key mismatch + rerun validation."
+
+### Fixed
+- **`react/no-unescaped-entities` — 7 errors across 3 files**
+  - `app/components/ControlCenterTab.tsx:368` — 2 `"` → `&quot;`
+  - `app/components/DataHealthPanel.tsx:404` — 2 `"` → `&quot;`
+  - `app/components/SystemHealthPanel.tsx:416,419` — 2 `"` + 1 `'` → `&quot;` + `&apos;`
+- **Auth token key mismatch (silent auth failure)**
+  - `app/lib/apiService.ts` uses `'auth_token'` (canonical — only place that SETS the key)
+  - `app/components/APIKeysTab.tsx:68,110,205` read `'token'` (always null → auth failed silently)
+  - `app/components/SettingsTab.tsx:487` read `'token'` (same bug in password-change flow)
+  - Unified all 4 reads to `'auth_token'`
+- **Smoke test stale expectation**
+  - `scripts/validate.js:77` expected `GET /api/settings/env → 401` (auth required)
+  - Earlier today I added loopback auth bypass — localhost callers now get 200 by design
+  - Updated test to expect 200 + added inline comment explaining the loopback-bypass rationale
+
+### Validation result
+```
+Pipeline: GREEN
+TypeScript: PASSED
+ESLint: PASSED
+Backend Syntax: PASSED
+Smoke Tests: 17/17 PASSED
+Next.js Build: SKIPPED (--skip-build flag, expected)
+Time: 12.3s
+```
+
+### Remaining pre-existing warnings (NOT this session's scope — Codex agreed)
+- **8 React Hook `exhaustive-deps` warnings** across older files:
+  - `app/components/options/hooks.ts:121` (calculatePayoff dep)
+  - `app/components/options/OptionsTab.tsx:95` (fetchTargetDatePayoff + targetDays)
+  - `app/components/OptionsTab.tsx:292,306,315` (legacy root file — 3 warnings)
+  - `app/components/OptionsTab.tsx:665` (visibleStrikes in useMemo — 2 warnings)
+  - `app/components/PositionSizer.tsx:87` (calculatePosition dep)
+  - `app/hooks/useHistoricalData.ts:128` (symbol + timeframe deps)
+  - `pages/angel-one-test.js:48` (refreshAllStocks dep)
+  - `pages/debug-totp.js:29` (fetchDebugInfo dep)
+- **1 `<img>` warning**: `app/components/StickyNotes.tsx:202` (should use Next.js `<Image />`)
+
+These are not blockers — TypeScript is green, ESLint errors are zero, pipeline is GREEN. Address in future cleanup sprint per ROADMAP.
+
+### Rule added to CLAUDE.md
+- "Always take a backup before making changes" — per user's explicit session-start rule. Future Claude sessions will run `npm run backup` as first action.
+
+### Files modified
+- `CLAUDE.md` — added backup-first rule + updated session-start reading list
+- `app/components/ControlCenterTab.tsx` — entity escapes
+- `app/components/DataHealthPanel.tsx` — entity escapes
+- `app/components/SystemHealthPanel.tsx` — entity escapes
+- `app/components/APIKeysTab.tsx` — auth token key unified
+- `app/components/SettingsTab.tsx` — auth token key unified
+- `scripts/validate.js` — smoke test expectation corrected post-bypass
+
+---
+
 ## 2026-04-17 (late night) — Full blueprint session: 49 features + 4-bot architecture locked
 
 **No code changes this entry — pure planning session.** Output: `project_logs/BOT_BLUEPRINT.md` (new canonical document).

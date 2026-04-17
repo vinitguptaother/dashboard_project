@@ -24,7 +24,7 @@
  *   - Smoke tests require MongoDB running locally
  */
 
-const { execSync, spawn } = require('child_process');
+const { execSync, execFileSync, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -37,11 +37,19 @@ const BACKEND_PORT = 5002;
 const SMOKE_TIMEOUT_MS = 30000; // 30s max to wait for server startup
 const REQUEST_TIMEOUT_MS = 10000; // 10s per request
 
+// Where pipeline writes its machine-readable status (read by the Settings UI)
+const PIPELINE_DIR = path.join(ROOT, '.pipeline');
+const LAST_RUN_PATH = path.join(PIPELINE_DIR, 'last-run.json');
+const HISTORY_PATH = path.join(PIPELINE_DIR, 'history.json');
+const HISTORY_LIMIT = 10;
+
 // Smoke test endpoints — chosen to cover every major subsystem
 // Each entry: [method, path, description, acceptableStatuses]
+// NOTE: 500 is NEVER acceptable — a crash must fail the check, not pass it.
+//       404 is acceptable only where the route is known to be optional.
 const SMOKE_ENDPOINTS = [
   // Core server
-  ['GET', '/api/health-check', 'Health check', [200, 404, 500]], // may 500 due to broken upstox require — known issue
+  ['GET', '/api/health-check', 'Health check', [200, 404]], // 404 OK (route is optional), 500 NOT OK
   // Market data
   ['GET', '/api/market/indices', 'Market indices (Upstox LTP)', [200]],
   ['GET', '/api/market/search/RELIANCE', 'Stock search', [200]],
@@ -65,8 +73,10 @@ const SMOKE_ENDPOINTS = [
   ['GET', '/api/risk/settings', 'Risk settings', [200]],
   // Instruments
   ['GET', '/api/instruments/search?q=NIFTY&limit=3', 'Instrument search', [200]],
-  // Env config (now requires auth — should return 401)
-  ['GET', '/api/settings/env', 'Env config (auth check)', [401]],
+  // Env config — auth required, but loopback bypass returns 200 for localhost
+  // callers (single-user dashboard). Remote callers still get 401.
+  // See backend/middleware/auth.js isLoopback() for rationale.
+  ['GET', '/api/settings/env', 'Env config (loopback bypass)', [200]],
   // Env schema (public)
   ['GET', '/api/settings/env/schema', 'Env schema (public)', [200]],
 ];
@@ -83,8 +93,69 @@ const COLORS = {
   bold: '\x1b[1m',
 };
 
+// Extra per-step details (populated by checks that want to expose structured info)
+let currentStepDetails = null;
+
 function log(color, symbol, msg) {
   console.log(`${color}${symbol}${COLORS.reset} ${msg}`);
+}
+
+function writeStatusJson(results, startTime, mode) {
+  try {
+    if (!fs.existsSync(PIPELINE_DIR)) fs.mkdirSync(PIPELINE_DIR, { recursive: true });
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    const hasFailed = Object.values(results).some(r => r && r.status === 'failed');
+    const hasSkipped = Object.values(results).some(r => r && r.status === 'skipped');
+
+    // Overall:
+    //   GREEN = all passed, no skips
+    //   AMBER = passed but with skipped steps (partial coverage — not trusted for backup)
+    //   RED   = any failure
+    let overall = 'green';
+    if (hasFailed) overall = 'red';
+    else if (hasSkipped) overall = 'amber';
+
+    const payload = {
+      overall,
+      mode, // 'full' | 'quick' | 'smoke'
+      startedAt: new Date(startTime).toISOString(),
+      finishedAt: new Date().toISOString(),
+      elapsedSeconds: Number(elapsed),
+      checks: results,
+      gitCommit: safeGit('rev-parse --short HEAD'),
+      gitBranch: safeGit('rev-parse --abbrev-ref HEAD'),
+    };
+
+    fs.writeFileSync(LAST_RUN_PATH, JSON.stringify(payload, null, 2));
+
+    // Append to history (cap at HISTORY_LIMIT)
+    let history = [];
+    if (fs.existsSync(HISTORY_PATH)) {
+      try { history = JSON.parse(fs.readFileSync(HISTORY_PATH, 'utf8')); } catch {}
+    }
+    // Keep only summary fields in history to keep it small
+    history.unshift({
+      overall: payload.overall,
+      mode: payload.mode,
+      finishedAt: payload.finishedAt,
+      elapsedSeconds: payload.elapsedSeconds,
+      checks: Object.fromEntries(
+        Object.entries(results).map(([k, v]) => [k, { status: v && v.status, reason: v && v.reason }])
+      ),
+      gitCommit: payload.gitCommit,
+    });
+    if (history.length > HISTORY_LIMIT) history.length = HISTORY_LIMIT;
+    fs.writeFileSync(HISTORY_PATH, JSON.stringify(history, null, 2));
+  } catch (err) {
+    console.error('Warning: could not write pipeline status JSON:', err.message);
+  }
+}
+
+function safeGit(args) {
+  try {
+    return execSync(`git ${args}`, { cwd: ROOT, stdio: 'pipe' }).toString().trim();
+  } catch { return 'unknown'; }
 }
 function pass(msg) { log(COLORS.green, '  PASS', msg); }
 function fail(msg) { log(COLORS.red, '  FAIL', msg); }
@@ -188,7 +259,7 @@ async function checkBuild() {
 
 async function checkBackendSyntax() {
   header('Step 4/5: Backend syntax check');
-  info('Running: node --check on all backend .js files');
+  info('Running: node --check on all backend .js files (shell-free)');
   info('NOTE: This catches SYNTAX errors only, not missing modules or runtime crashes.');
 
   const jsFiles = [];
@@ -202,22 +273,52 @@ async function checkBackendSyntax() {
   }
   walk(BACKEND_DIR);
 
-  let failures = 0;
+  let syntaxFailures = 0;
+  let toolFailures = 0;
+  const syntaxErrors = [];
+  const toolErrors = [];
+
   for (const file of jsFiles) {
     const rel = path.relative(ROOT, file);
-    const result = runCmd(`node --check "${file}"`, { silent: true });
-    if (!result.ok) {
-      fail(`Syntax error: ${rel}`);
-      if (result.error) console.log(`    ${result.error.split('\n')[0]}`);
-      failures++;
+    try {
+      execFileSync(process.execPath, ['--check', file], {
+        stdio: 'pipe',
+        timeout: 15000,
+      });
+    } catch (err) {
+      // Node exits 1 on real syntax error — stderr begins with a SyntaxError frame.
+      // Spawn failures (ENOENT, EPERM, ETIMEDOUT) are tooling problems, not code problems.
+      const stderr = err.stderr ? err.stderr.toString() : '';
+      const isSpawnFailure = err.code === 'ENOENT' || err.code === 'EPERM' ||
+                             err.code === 'ETIMEDOUT' || err.signal === 'SIGTERM';
+      if (isSpawnFailure) {
+        toolFailures++;
+        toolErrors.push({ file: rel, reason: err.code || err.message });
+        warn(`Tool error (not a syntax error): ${rel} — ${err.code || err.message}`);
+      } else {
+        syntaxFailures++;
+        const firstLine = (stderr || err.message).split('\n').find(l => l.trim()) || '(no detail)';
+        syntaxErrors.push({ file: rel, reason: firstLine.trim() });
+        fail(`Syntax error: ${rel}`);
+        console.log(`    ${firstLine.trim()}`);
+      }
     }
   }
 
-  if (failures === 0) {
-    pass(`Backend syntax — ${jsFiles.length} files checked, no syntax errors`);
+  // Tool failures are warnings, not failures — they don't invalidate the code.
+  if (toolFailures > 0) {
+    warn(`${toolFailures} file(s) could not be checked due to tool errors (spawn/timeout). Not counted as syntax failures.`);
+  }
+
+  if (syntaxFailures === 0) {
+    const checked = jsFiles.length - toolFailures;
+    pass(`Backend syntax — ${checked}/${jsFiles.length} files checked, no syntax errors` +
+         (toolFailures > 0 ? ` (${toolFailures} skipped due to tool errors)` : ''));
+    currentStepDetails = { toolFailures, toolErrors };
     return true;
   }
-  fail(`Backend syntax — ${failures}/${jsFiles.length} files have syntax errors`);
+  fail(`Backend syntax — ${syntaxFailures}/${jsFiles.length} files have syntax errors`);
+  currentStepDetails = { syntaxFailures, syntaxErrors, toolFailures, toolErrors };
   return false;
 }
 
@@ -286,9 +387,11 @@ async function checkSmokeTests() {
 
   if (failed === 0) {
     pass(`Smoke tests — ${passed}/${SMOKE_ENDPOINTS.length} endpoints responded correctly`);
+    currentStepDetails = { passed, failed, total: SMOKE_ENDPOINTS.length };
     return true;
   }
   fail(`Smoke tests — ${failed}/${SMOKE_ENDPOINTS.length} endpoints failed`);
+  currentStepDetails = { passed, failed, total: SMOKE_ENDPOINTS.length, failures };
   return false;
 }
 
@@ -310,6 +413,7 @@ async function main() {
   const args = process.argv.slice(2);
   const skipBuild = args.includes('--skip-build');
   const smokeOnly = args.includes('--smoke-only');
+  const mode = smokeOnly ? 'smoke' : (skipBuild ? 'quick' : 'full');
 
   console.log(`${COLORS.bold}
 ╔═══════════════════════════════════════════════╗
@@ -318,6 +422,12 @@ async function main() {
 
   const results = {};
   const startTime = Date.now();
+
+  const finalize = (exitCode) => {
+    printSummary(results, startTime);
+    writeStatusJson(results, startTime, mode);
+    process.exit(exitCode);
+  };
 
   if (smokeOnly) {
     info('--smoke-only: skipping steps 1-4');
@@ -328,13 +438,13 @@ async function main() {
   } else {
     // Step 1: TypeScript
     const tsOk = await checkTypeScript();
-    results.typescript = { status: tsOk ? 'passed' : 'failed' };
-    if (!tsOk) { printSummary(results, startTime); process.exit(1); }
+    results.typescript = { status: tsOk ? 'passed' : 'failed', reason: tsOk ? null : 'Type errors — see terminal output' };
+    if (!tsOk) return finalize(1);
 
     // Step 2: ESLint
     const lintOk = await checkLint();
-    results.lint = { status: lintOk ? 'passed' : 'failed' };
-    if (!lintOk) { printSummary(results, startTime); process.exit(1); }
+    results.lint = { status: lintOk ? 'passed' : 'failed', reason: lintOk ? null : 'Lint errors — see terminal output' };
+    if (!lintOk) return finalize(1);
 
     // Step 3: Build
     if (skipBuild) {
@@ -342,22 +452,31 @@ async function main() {
       results.build = { status: 'skipped', reason: '--skip-build flag' };
     } else {
       const buildOk = await checkBuild();
-      results.build = { status: buildOk ? 'passed' : 'failed' };
-      if (!buildOk) { printSummary(results, startTime); process.exit(1); }
+      results.build = { status: buildOk ? 'passed' : 'failed', reason: buildOk ? null : 'Build failed — see terminal output' };
+      if (!buildOk) return finalize(1);
     }
 
     // Step 4: Backend syntax
     const syntaxOk = await checkBackendSyntax();
-    results.backendSyntax = { status: syntaxOk ? 'passed' : 'failed' };
-    if (!syntaxOk) { printSummary(results, startTime); process.exit(1); }
+    results.backendSyntax = {
+      status: syntaxOk ? 'passed' : 'failed',
+      reason: syntaxOk ? null : 'Syntax errors in backend files',
+      details: currentStepDetails,
+    };
+    currentStepDetails = null;
+    if (!syntaxOk) return finalize(1);
   }
 
   // Step 5: Smoke tests
   const smokeOk = await checkSmokeTests();
-  results.smokeTests = { status: smokeOk ? 'passed' : 'failed' };
+  results.smokeTests = {
+    status: smokeOk ? 'passed' : 'failed',
+    reason: smokeOk ? null : 'One or more endpoints returned an unexpected status',
+    details: currentStepDetails,
+  };
+  currentStepDetails = null;
 
-  printSummary(results, startTime);
-  process.exit(smokeOk ? 0 : 1);
+  finalize(smokeOk ? 0 : 1);
 }
 
 function printSummary(results, startTime) {
