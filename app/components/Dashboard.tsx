@@ -12,6 +12,7 @@ import CorporateEventsWidget from './CorporateEventsWidget';
 import LargeDealsWidget from './LargeDealsWidget';
 import RiskEnginePanel from './RiskEnginePanel';
 import KillSwitchBoard from './KillSwitchBoard';
+import ValidatorPanel from './ValidatorPanel';
 
 const BACKEND_URL = 'http://localhost:5002';
 
@@ -380,6 +381,9 @@ const Dashboard = () => {
 
       {/* Section B2c: Kill Switch Board (Sprint 3 #11) — unified kill status + panic button */}
       <KillSwitchBoard />
+
+      {/* Section B2d: Validator (Sprint 3 #6) — pre-flight gate for bot + manual candidates */}
+      <ValidatorPanel />
 
       {/* Section B3: Market Regime (Sprint 2 #30) — top of Indian-signals row */}
       <MarketRegimeWidget />

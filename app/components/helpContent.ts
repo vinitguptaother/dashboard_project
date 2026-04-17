@@ -492,6 +492,54 @@ export const HELP_CONTENT: HelpSection[] = [
     ],
   },
 
+  // ─── Validator (Sprint 3 #6) ──────────────────────────────────────────────
+  {
+    id: 'validator',
+    title: 'Validator',
+    intro: 'The single gate between "bot has an idea" and "paper trade gets saved". Wraps Risk Engine + Kill Switches + 2 extra bot-specific gates + SEBI compliance recording, all in one call.',
+    lessons: [
+      {
+        title: 'What the Validator does',
+        summary: 'POST /api/validator/validate runs every candidate through 9 gates before accept/reject. Every call is audit-logged.',
+        steps: [
+          'Gate 1 — Kill switch active? (Sprint 1 #15 Daily Loss Breaker)',
+          'Gate 2 — Post-loss cooldown? (Sprint 1 #16)',
+          'Gate 3 — Drawdown lockout? (Sprint 3 #10)',
+          'Gate 4 — Per-trade risk ≤ riskPerTrade% of capital',
+          'Gate 5 — Position notional ≤ maxPositionPct% of capital',
+          'Gate 6 — Sector concentration stays below cap after this trade',
+          'Gate 7 — Per-bot kill switch? (Sprint 3 #11)',
+          'Gate 8 — Per-bot capital + concurrent positions',
+          'Gate 9 — Duplicate-open check (don\'t re-enter a symbol the same bot already holds)',
+          'Gate 10 — Market-hours check (unless `allowOffHours: true`)',
+        ],
+        tips: [
+          'Every candidate produces an `evaluated` compliance event; rejected ones also get a `rejected` event with the full reasons[].',
+          'Accepted candidates can be optionally persisted by passing `persist=true` — they become real TradeSetup rows with Realism Engine entry costs applied (Sprint 3 #9).',
+        ],
+      },
+      {
+        title: 'Validator Panel (Dashboard widget)',
+        summary: 'Interactive "will this pass?" form — useful before placing a manual trade OR to test why a bot candidate is being rejected.',
+        steps: [
+          'Fill botId + symbol + side + qty + entry/SL/target + sector + segment + liquidity band.',
+          'Click "Validate (dry run)" — runs all gates, shows accept/reject with reason list + expandable gate snapshot.',
+          'If accepted, click "Save as Paper Trade" to persist (same as paper-trade POST but with full validator contract).',
+          'Recent validations list at the bottom — spot patterns like "every swing Energy trade is rejected" instantly.',
+        ],
+        tips: [
+          '`allow off-hours` — on by default so you can plan trades evenings; uncheck to enforce market-hours gate.',
+          'Gate snapshot JSON reveals exact check values (risk limits, sector %, etc.) — invaluable when debugging.',
+          'This widget is the single source of truth; when Sprint 4 bots ship, they\'ll call the same endpoint.',
+        ],
+      },
+      {
+        title: 'Batch validation (for Scanner)',
+        summary: 'POST /api/validator/validate-batch accepts `candidates: [...]` and runs them all. Used by the upcoming Scanner (#5) to evaluate 20-50 candidates in one pass.',
+      },
+    ],
+  },
+
   // ─── SEBI Compliance Log (Sprint 3 #46) ───────────────────────────────────
   {
     id: 'compliance',

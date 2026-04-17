@@ -213,6 +213,7 @@ app.use('/api/paper-realism', require('./routes/paperRealism'));
 app.use('/api/risk-engine', require('./routes/riskEngine'));
 app.use('/api/kill-switches', require('./routes/killSwitches'));
 app.use('/api/compliance', require('./routes/compliance'));
+app.use('/api/validator', require('./routes/validator'));
 
 // Error handling middleware
 app.use(errorHandler);

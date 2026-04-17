@@ -14,6 +14,61 @@ Format:
 
 ---
 
+## 2026-04-17 (late night, Sprint 3 continuing⁴) — Sprint 3 #6 Validator shipped
+
+Single gate between "bot has an idea" and "paper trade gets saved." Wraps Risk Engine + Kill Switches + 2 new bot-specific gates + SEBI compliance recording, all in one atomic call. The pre-requisite for Scanner (#5) and Executor (#7).
+
+### Added — Backend
+- `backend/services/validatorService.js`:
+  - `validateCandidate(candidate, { persist })` — end-to-end gate. Runs 9+ checks in order:
+    1-7. All 7 Risk Engine gates (kill switch, cooldown, drawdown, per-trade risk, position size, sector concentration, per-bot limits — Sprint 3 #10+#11)
+    8. **Duplicate-open** — rejects if the same botId already has an ACTIVE setup for the same symbol
+    9. **Market-hours** — rejects if market closed unless `allowOffHours: true`
+  - Always records an `evaluated` compliance event (audit trail).
+  - If rejected: records `rejected` event with full reasons[].
+  - If accepted + `persist=true`: creates TradeSetup with Realism Engine entry costs (#9), then records `accepted` event linked to the setup ID.
+  - `validateBatch(candidates[], opts)` — runs N candidates; used by Scanner (#5).
+  - `getRecentValidations({ limit, botId })` — last N validation events from compliance feed.
+- `backend/routes/validator.js` — POST /validate, POST /validate-batch, GET /history.
+- `backend/server.js` — mounted `/api/validator`.
+
+### Added — Frontend
+- `app/components/ValidatorPanel.tsx`:
+  - Full candidate form: bot, symbol, side, qty, entry/SL/target, sector, segment, liquidity band, reasoning.
+  - Two buttons: "Validate (dry run)" + "Save as Paper Trade" (only enabled after a successful dry run).
+  - `allow off-hours` checkbox (on by default for evening-planning).
+  - Result card: green ACCEPTED or red REJECTED with ordered reason bullets.
+  - Expandable "gate snapshot" showing full checks JSON (debugging).
+  - Recent validations feed (toggleable) — last 10 events across bots with decision pill.
+- `app/components/Dashboard.tsx` — mounted as Section B2d (right after Kill Switch Board).
+- `app/components/helpContent.ts` — new `validator` section with 3 lessons (what it does, panel usage, batch API for Scanner).
+
+### Verified (live)
+```
+1) HDFCBANK swing BUY 5@1500 SL1470 T1560 Banking dry-run → ACCEPTED
+2) RELIANCE swing BUY 100@2800 SL2500 Energy → REJECTED (4 reasons)
+     ❌ Per-trade risk ₹30000 exceeds limit ₹10000 (2%)
+     ❌ Position ₹280000 exceeds max ₹100000 (20%)
+     ❌ Sector Energy would reach 56% > max 30%
+     ❌ Bot swing deployed ₹280000 > allocated ₹200000
+3) HDFCBANK swing BUY 5@1500 persist=true → ACCEPTED, setupId=69e24dcd…
+4) Re-submit HDFCBANK → REJECTED: "swing already has an active HDFCBANK setup"
+5) /history returns all 9 compliance events (evaluated/accepted/rejected triplets)
+```
+
+### Why this matters (Vinit context)
+Before #6: each Risk-Engine gate was reachable, but no single endpoint wrapped them with compliance + persistence. A bot would have had to call 3 different services.
+After #6: Scanner (#5) and bot-specific validators (Sprint 4) just `POST /api/validator/validate?persist=true` with a candidate. One call, one audit event, one TradeSetup on accept. The UI widget makes the same pre-flight available to manual trades.
+
+### Sprint 3 progress
+✅ #9 Realism · ✅ #10 Risk · ✅ #11 Kill Switches · ✅ #46 Compliance · **✅ #6 Validator**
+**Remaining:** #5 Scanner (pulls candidates from screens + AI → calls validate-batch) · #7 Executor (live-only, used when bots graduate off paper)
+
+### Next
+Recommend **#5 Scanner** next — the bot entry point. Reads active screens → AI scores top candidates → submits batch to Validator → shows results as "Today's top bot ideas" panel. This gives you the end-to-end paper-trading bot loop, even before #7 Executor (live) ships.
+
+---
+
 ## 2026-04-17 (late night, Sprint 3 continuing³) — Sprint 3 #46 SEBI Compliance Log shipped
 
 SEBI-grade immutable audit trail for every algo decision. Must exist from Day 1 of bot trading (per blueprint lock). Unified feed: every paper trade, every rejection, every kill event — all written to a single collection with declared algoIds.
