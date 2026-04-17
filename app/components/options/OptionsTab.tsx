@@ -360,7 +360,9 @@ export default function OptionsTab() {
         legs={legs}
       />
 
-      {/* Pre-Trade Gate (Execution Checklist) — fires before paper trade is saved */}
+      {/* Pre-Trade Gate (Execution Checklist) — fires before paper trade is saved.
+          Passes payoff.maxLoss so the Position Sizing Hard Gate (#14) can hard-block
+          trades where the computed loss exceeds the per-trade risk rule. */}
       <PreTradeGate
         isOpen={showPreTradeGate}
         onClose={() => setShowPreTradeGate(false)}
@@ -371,6 +373,7 @@ export default function OptionsTab() {
           strategyName,
           intendedQty: legs.reduce((sum, l) => sum + (l.qty || 0), 0) * multiplier,
           intendedEntry: spotPrice,
+          maxLossAtSize: payoff?.maxLoss,
         }}
         title="Pre-Trade Checklist — Options Paper Trade"
       />

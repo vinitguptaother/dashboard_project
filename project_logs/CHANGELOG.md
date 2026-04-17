@@ -14,6 +14,71 @@ Format:
 
 ---
 
+## 2026-04-17 (late night, continuing³) — Sprint 1 #14 + #16 shipped → Sprint 1 COMPLETE (9/9)
+
+Continuing past #17/#18. Shipped the last two Sprint 1 items in one push to close out the discipline loop.
+
+### #14 Position Sizing Hard Gate
+- `app/components/PreTradeGate.tsx`:
+  - New inline Position-Sizing panel (calculator icon) inside the checklist.
+  - Auto-fetches capital + riskPerTradePct from `/api/risk/settings` via new `useRiskRule()` inline hook.
+  - Computes max loss at requested size: uses `tradeContext.maxLossAtSize` if provided (for options, from `payoff.maxLoss`) or falls back to `(entry − SL) × qty` for stock trades.
+  - Three panel states: compliant (green), violates (red + 🚫 BLOCKED explanation), or uncomputable (gray gentle note).
+  - **"Risk acceptable" check is now auto-synced** — disabled Pass/Fail/N/A buttons (grayed out with `auto` label), `useEffect` writes the computed result into `checks.riskAcceptable`.
+  - **Hard block on submit**: `riskHardBlocked` flag disables "Record + Proceed" with red "🚫 Blocked — Reduce Size" label. User cannot override from this modal (must reduce size or widen SL).
+- `app/components/options/OptionsTab.tsx`:
+  - `tradeContext.maxLossAtSize` set from `payoff?.maxLoss` so options strategies get their real max loss (handles `'Unlimited'` naked-sell cases — those auto-fail).
+
+### #16 Post-Loss Cooldown
+- `backend/models/RiskSettings.js` — added `cooldownUntil` (timestamp) + `cooldownReason` (string) fields.
+- `backend/routes/tradeJournal.js` — on every new entry:
+  - If `pnl < 0` AND the previous entry was also `pnl < 0` → set `cooldownUntil = now + 30 minutes`, set reason, log activity, broadcast websocket notification.
+  - Response now includes `cooldownTriggered` object when triggered this call.
+- `backend/routes/riskManagement.js`:
+  - `/api/risk/daily-pnl` response now embeds `cooldown: { active, until, msRemaining, reason }`. One poll surfaces both circuit breaker + cooldown.
+  - New `POST /api/risk/cooldown/clear` — no typed confirmation (lighter friction tier than full lock). Logs activity.
+- `app/hooks/useDailyLossBreaker.ts` — extended with `cooldownActive / cooldownUntil / cooldownMsRemaining / cooldownReason` + `clearCooldown` action.
+- `app/components/PostLossCooldownBanner.tsx` — NEW. Top-of-screen amber banner when cooldown is active:
+  - Visible only when `cooldownActive && !isLocked` (deferring to full lock if both are active).
+  - Live MM:SS countdown.
+  - Clear button (one-click, no typed confirm — lighter tier).
+  - Mounted in `app/page.tsx` alongside `DailyLossLockOverlay`.
+
+### Verified this session (end-to-end)
+- #14: TypeScript clean, type signatures correct for optional `maxLossAtSize: number | string`.
+- #16 API: Two sequential POSTs to `/api/trade-journal/entry` with negative pnl → 2nd returned `cooldownTriggered: { until: ..., reason: '2 consecutive losses — last two closed trades lost ₹1200', ms: 1800000 }`.
+- #16 API: `GET /api/risk/daily-pnl` returned `cooldown.active: true, msRemaining: 1799746`.
+- #16 API: `POST /api/risk/cooldown/clear` returned success, state flipped.
+- `validate:quick`: TypeScript ✅ ESLint ✅ Backend Syntax ✅ Smoke 17/17 ✅ → PIPELINE GREEN
+
+### Sprint 1 status: **9 of 9 DONE** 🎉
+
+| # | Feature | Status |
+|---|---------|--------|
+| 13 | Pre-Trade Gate | ✅ Phase 1 |
+| 14 | Position Sizing Hard Gate | ✅ this commit |
+| 15 | Daily Loss Circuit Breaker | ✅ |
+| 16 | Post-Loss Cooldown | ✅ this commit |
+| 17 | Auto Journal | ✅ Phase 1 |
+| 18 | Mistake Tagging | ✅ |
+| 38 | Data Health Panel | ✅ (pre-existing) |
+| 39 | Broker Readiness | ✅ (SystemHealthPanel) |
+| 40 | Control Center | ✅ (pre-existing) |
+
+Next session: Sprint 2 (Indian market feeds — #26 FII/DII, #27 Corp Actions, #28 Sector Rotation, #29 Bulk/Block, #30 Market Regime).
+
+### Files changed this session (Sprint 1 items #14 + #16)
+- MODIFIED: `app/components/PreTradeGate.tsx` — Position Sizing auto-calc + hard block
+- MODIFIED: `app/components/options/OptionsTab.tsx` — wired `maxLossAtSize` from payoff
+- MODIFIED: `backend/models/RiskSettings.js` — cooldown fields
+- MODIFIED: `backend/routes/tradeJournal.js` — cooldown auto-trigger on 2nd consecutive loss
+- MODIFIED: `backend/routes/riskManagement.js` — cooldown in daily-pnl + clear endpoint
+- MODIFIED: `app/hooks/useDailyLossBreaker.ts` — cooldown state + clearCooldown action
+- NEW: `app/components/PostLossCooldownBanner.tsx`
+- MODIFIED: `app/page.tsx` — mounted banner
+
+---
+
 ## 2026-04-17 (late night, continuing²) — Sprint 1 #17 Auto Journal + #18 Mistake Tagging shipped
 
 Continuing Sprint 1 momentum after #15. Paired #17 (Auto Journal) + #18 (Mistake Tagging) as one feature since they share infrastructure.

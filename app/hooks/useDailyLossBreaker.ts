@@ -25,6 +25,11 @@ export interface DailyLossBreakerState {
   msUntilReset: number;       // ms until midnight IST
   resetAtIST: string;         // ISO string
   autoTriggeredThisCall: boolean;
+  // Post-Loss Cooldown (BOT_BLUEPRINT #16) — separate state from full lock
+  cooldownActive: boolean;
+  cooldownUntil: string;      // ISO or empty
+  cooldownMsRemaining: number;
+  cooldownReason: string;
   loading: boolean;
   error: string | null;
 }
@@ -32,6 +37,7 @@ export interface DailyLossBreakerState {
 export interface DailyLossBreakerActions {
   refresh: () => Promise<void>;
   override: (reason?: string) => Promise<{ success: boolean; message: string }>;
+  clearCooldown: (reason?: string) => Promise<{ success: boolean; message: string }>;
 }
 
 const INITIAL_STATE: DailyLossBreakerState = {
@@ -44,6 +50,10 @@ const INITIAL_STATE: DailyLossBreakerState = {
   msUntilReset: 0,
   resetAtIST: '',
   autoTriggeredThisCall: false,
+  cooldownActive: false,
+  cooldownUntil: '',
+  cooldownMsRemaining: 0,
+  cooldownReason: '',
   loading: true,
   error: null,
 };
@@ -60,6 +70,7 @@ export function useDailyLossBreaker(): DailyLossBreakerState & DailyLossBreakerA
 
       if (json.status === 'success' && json.data) {
         const d = json.data;
+        const cooldown = d.cooldown || {};
         setState(prev => ({
           ...prev,
           isLocked: !!d.killSwitchActive,
@@ -71,6 +82,10 @@ export function useDailyLossBreaker(): DailyLossBreakerState & DailyLossBreakerA
           msUntilReset: d.msUntilReset ?? 0,
           resetAtIST: d.resetAtIST ?? '',
           autoTriggeredThisCall: !!d.autoTriggeredThisCall,
+          cooldownActive: !!cooldown.active,
+          cooldownUntil: cooldown.until ?? '',
+          cooldownMsRemaining: cooldown.msRemaining ?? 0,
+          cooldownReason: cooldown.reason ?? '',
           loading: false,
           error: null,
         }));
@@ -101,6 +116,24 @@ export function useDailyLossBreaker(): DailyLossBreakerState & DailyLossBreakerA
     }
   }, [fetchPnl]);
 
+  const clearCooldown = useCallback(async (reason?: string) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/risk/cooldown/clear`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason || '' }),
+      });
+      const json = await res.json();
+      if (json.status === 'success') {
+        await fetchPnl();
+        return { success: true, message: json.message || 'Cooldown cleared' };
+      }
+      return { success: false, message: json.message || 'Clear failed' };
+    } catch (e: any) {
+      return { success: false, message: e.message || 'Network error' };
+    }
+  }, [fetchPnl]);
+
   useEffect(() => {
     mountedRef.current = true;
     fetchPnl();
@@ -111,5 +144,5 @@ export function useDailyLossBreaker(): DailyLossBreakerState & DailyLossBreakerA
     };
   }, [fetchPnl]);
 
-  return { ...state, refresh: fetchPnl, override };
+  return { ...state, refresh: fetchPnl, override, clearCooldown };
 }

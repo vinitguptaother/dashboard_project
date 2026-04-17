@@ -75,7 +75,57 @@ router.post('/entry', async (req, res) => {
       source: body.source || 'auto-on-close',
     });
 
-    res.json({ status: 'success', data: doc });
+    // ── Post-Loss Cooldown auto-trigger (BOT_BLUEPRINT #16) ─────────────────
+    // When a closed trade is a loss AND the previous closed trade was also a
+    // loss → 30-min cooldown on new trade entries.
+    let cooldownTriggered = null;
+    try {
+      if ((body.pnl || 0) < 0) {
+        const prev = await TradeJournalEntry
+          .find({ _id: { $ne: doc._id } })
+          .sort({ exitAt: -1, createdAt: -1 })
+          .limit(1)
+          .lean();
+        if (prev[0] && (prev[0].pnl || 0) < 0) {
+          const RiskSettings = require('../models/RiskSettings');
+          const settings = await RiskSettings.findOne({ userId: 'default' }) ||
+                           await RiskSettings.create({ userId: 'default' });
+          const cooldownMs = 30 * 60 * 1000; // 30 minutes
+          settings.cooldownUntil = new Date(Date.now() + cooldownMs);
+          settings.cooldownReason = `2 consecutive losses — last two closed trades lost ₹${Math.abs(prev[0].pnl + (body.pnl || 0)).toFixed(0)}`;
+          await settings.save();
+          cooldownTriggered = {
+            until: settings.cooldownUntil,
+            reason: settings.cooldownReason,
+            ms: cooldownMs,
+          };
+
+          try {
+            const logActivity = require('../utils/logActivity');
+            logActivity?.('risk', 'post-loss-cooldown-triggered', {
+              currentPnl: body.pnl,
+              prevPnl: prev[0].pnl,
+              cooldownUntil: settings.cooldownUntil,
+            }, 'warning');
+          } catch (_) { /* optional */ }
+
+          try {
+            const websocketService = require('../services/websocketService');
+            websocketService.broadcastSystemNotification?.({
+              id: 'cooldown-' + Date.now(),
+              type: 'warning',
+              title: '⏸ Post-Loss Cooldown Activated',
+              message: `Two consecutive losses. Trade entries paused for 30 minutes to break tilt patterns.`,
+              timestamp: new Date().toISOString(),
+            });
+          } catch (_) { /* optional */ }
+        }
+      }
+    } catch (err) {
+      console.error('Cooldown trigger error (non-fatal):', err.message);
+    }
+
+    res.json({ status: 'success', data: doc, cooldownTriggered });
   } catch (error) {
     console.error('TradeJournal create error:', error.message);
     res.status(500).json({ status: 'error', message: error.message });

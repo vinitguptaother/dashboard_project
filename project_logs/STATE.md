@@ -72,8 +72,10 @@ Build a personal AI-powered trading dashboard for Vinit (Indian retail, real-mon
 - ✅ **#15 Daily Loss Circuit Breaker — shipped.** `/api/risk/daily-pnl` auto-locks at 100% usedPct, full-page overlay blocks UI until midnight IST OR typed "UNLOCK" override (logged).
 - ✅ **#17 Auto Journal (Phase 1) — shipped.** Every Options close creates enriched TradeJournalEntry via `/api/trade-journal/entry` with context snapshot (NIFTY level, more cheap context).
 - ✅ **#18 Mistake Tagging — shipped.** MistakeTagModal forces tag selection before trade closes. `/api/trade-journal/mistake-stats` returns rupee attribution per category.
-- 🟡 #14 Position Sizing Gate — next up
-- 🟡 #16 Post-Loss Cooldown — next up
+- ✅ **#14 Position Sizing Hard Gate — shipped.** PreTradeGate computes max-loss vs capital×riskPerTradePct, auto-syncs the "Risk acceptable" check, hard-blocks submit when violated (red "🚫 Blocked — Reduce Size" button).
+- ✅ **#16 Post-Loss Cooldown — shipped.** 2 consecutive losses auto-trigger 30-min cooldown via `/api/trade-journal/entry`. Amber top banner with MM:SS countdown + one-click clear (lighter friction tier than full lock).
+
+🎯 **Sprint 1 COMPLETE — 9 of 9 items done.** Next: Sprint 2 (Indian feeds: FII/DII, corp actions, sector rotation, bulk/block, market regime).
 - 🟡 #16 Post-Loss Cooldown — next up
 - 🟡 #17 Auto Journal — next up
 - 🟡 #18 Mistake Tagging — next up

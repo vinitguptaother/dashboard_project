@@ -22,6 +22,7 @@ import ControlCenterTab from './components/ControlCenterTab';
 import AIChatbot from './components/AIChatbot';
 import StickyNotes from './components/StickyNotes';
 import DailyLossLockOverlay from './components/DailyLossLockOverlay';
+import PostLossCooldownBanner from './components/PostLossCooldownBanner';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -77,6 +78,8 @@ export default function Home() {
       </main>
       <StickyNotes />
       <AIChatbot />
+      {/* Post-Loss Cooldown Banner (lighter friction — 2 consecutive losses) */}
+      <PostLossCooldownBanner />
       {/* Daily Loss Circuit Breaker — blocks UI when daily P&L breaches limit */}
       <DailyLossLockOverlay />
     </div>

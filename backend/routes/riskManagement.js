@@ -409,6 +409,12 @@ router.get('/daily-pnl', async (req, res) => {
     midnightIST.setHours(24, 0, 0, 0);
     const msUntilReset = midnightIST.getTime() - istNow.getTime();
 
+    // Post-Loss Cooldown (BOT_BLUEPRINT #16) state — surface alongside daily-pnl
+    // so one poll covers both circuit breaker + cooldown.
+    const cooldownUntil = settings.cooldownUntil ? new Date(settings.cooldownUntil) : null;
+    const inCooldown = !!(cooldownUntil && cooldownUntil.getTime() > Date.now());
+    const cooldownMsRemaining = inCooldown ? (cooldownUntil.getTime() - Date.now()) : 0;
+
     res.json({
       status: 'success',
       data: {
@@ -419,11 +425,47 @@ router.get('/daily-pnl', async (req, res) => {
         autoTriggeredThisCall: autoTriggered,
         msUntilReset,
         resetAtIST: midnightIST.toISOString(),
+        cooldown: {
+          active: inCooldown,
+          until: cooldownUntil ? cooldownUntil.toISOString() : null,
+          msRemaining: cooldownMsRemaining,
+          reason: inCooldown ? (settings.cooldownReason || '') : '',
+        },
       },
     });
   } catch (err) {
     console.error('Error calculating daily P&L:', err.message);
     res.status(500).json({ status: 'error', message: 'Failed to calculate daily P&L' });
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/risk/cooldown/clear
+// Manually end post-loss cooldown (BOT_BLUEPRINT #16). No typed confirmation
+// — cooldown is the lightest-friction lock. Just logs the override.
+// ─────────────────────────────────────────────
+router.post('/cooldown/clear', async (req, res) => {
+  try {
+    const settings = await getOrCreateSettings();
+    if (!settings.cooldownUntil || new Date(settings.cooldownUntil).getTime() <= Date.now()) {
+      return res.json({ status: 'success', data: { active: false }, message: 'No active cooldown.' });
+    }
+    settings.cooldownUntil = null;
+    settings.cooldownReason = '';
+    await settings.save();
+
+    try {
+      const logActivity = require('../utils/logActivity');
+      logActivity?.('risk', 'post-loss-cooldown-cleared', {
+        reason: req.body?.reason || '(no reason given)',
+        clearedAt: new Date().toISOString(),
+      }, 'info');
+    } catch (_) { /* optional */ }
+
+    res.json({ status: 'success', data: { active: false }, message: 'Cooldown cleared. Trading resumed.' });
+  } catch (err) {
+    console.error('Error clearing cooldown:', err.message);
+    res.status(500).json({ status: 'error', message: 'Failed to clear cooldown' });
   }
 });
 

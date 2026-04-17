@@ -62,6 +62,17 @@ const riskSettingsSchema = new mongoose.Schema({
     default: null,
   },
 
+  // Post-Loss Cooldown (BOT_BLUEPRINT item #16) — after 2 consecutive losses,
+  // trade buttons disabled until this timestamp.
+  cooldownUntil: {
+    type: Date,
+    default: null,
+  },
+  cooldownReason: {
+    type: String,
+    default: '',
+  },
+
   updatedAt: {
     type: Date,
     default: Date.now,
