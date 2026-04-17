@@ -112,6 +112,13 @@ const SEED_TASKS = [
     type: 'system', cadence: 'daily', schedule: '30 18 * * 1-5',
     graceMinutes: 180, category: 'market-data', marketDaysOnly: true,
   },
+  {
+    taskKey: 'market-regime',
+    name: 'Market Regime classifier (every 30 min, market hours)',
+    description: 'Classifies NIFTY regime as trending-bull / bear / choppy / breakout / risk-off using EMAs + VIX + FII/DII. Feeds bot Validator layer.',
+    type: 'system', cadence: 'custom', schedule: '*/30 9-15 * * 1-5',
+    graceMinutes: 60, category: 'market-data', marketDaysOnly: true,
+  },
 
   // ── User activities (no automation; user is expected to perform them)
   {

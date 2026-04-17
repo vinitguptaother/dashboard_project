@@ -14,6 +14,77 @@ Format:
 
 ---
 
+## 2026-04-17 (late night, continuing⁶) — Sprint 2 #30 Market Regime Engine shipped
+
+Built on top of #26 FII/DII (just shipped). Classifies the Indian market into one of 5 regimes. Cornerstone for Sprint 3+ bot Validator layer.
+
+### Added — Backend
+- `backend/models/MarketRegime.js` — snapshot schema: regime (enum), confidence (0-1), reason string, full inputs snapshot (NIFTY level + 20/50/200 EMA + VIX + VIX delta + FII/DII net + breadth), computedAt.
+- `backend/services/regimeService.js`:
+  - `fetchNiftyHistoricalClose(500)` — pulls daily closes from Upstox (500 days requested, returns whatever's available).
+  - `fetchVix()` — fetches India VIX LTP + day-over-day change (2-day historical for delta).
+  - `ema()` — pure EMA implementation.
+  - `classifyCurrent()` — rule engine:
+    - RISK-OFF: VIX ≥ 22 or +25% day change
+    - TRENDING-BULL: NIFTY > 50 EMA > 200 EMA AND FII net ≥ 0
+    - TRENDING-BEAR: NIFTY < 50 EMA < 200 EMA AND FII net ≤ 0
+    - BREAKOUT: NIFTY crossed 50 EMA from below in last 3 sessions AND VIX < 18
+    - CHOPPY: default
+  - **Graceful degradation**: if <200 days of history, 200 EMA is skipped; classification still works with 50 EMA only (flagged in reason string + lower confidence 0.45 vs 0.60).
+  - `computeAndStore()` + `getCurrent()` + `getHistory()`.
+- `backend/routes/regime.js` — GET /current, GET /history?limit=N, POST /refresh.
+- `backend/server.js`:
+  - Mounted `/api/regime`.
+  - NEW cron `*/30 9-15 * * 1-5` Asia/Kolkata — recomputes every 30 min during market hours. Reports to Cadence Registry.
+
+### Added — Cadence Registry
+- `cadenceService.js` — seeded `market-regime` task (60 min grace, marketDaysOnly). Registry now 20 tasks.
+
+### Added — Frontend
+- `app/components/MarketRegimeWidget.tsx`:
+  - 6 regime variants with distinct icon + color (green/red/gray/amber/orange/gray).
+  - Shows current regime label, description, "Why" reason, inline key inputs (NIFTY / 50EMA / VIX / FII), confidence %, computed-at time.
+  - Manual refresh button.
+  - Polls every 5 min.
+- `app/components/Dashboard.tsx` — mounted `<MarketRegimeWidget />` as Section B3 (above the FII/DII widget).
+
+### Added — Help (user rule #4)
+- `helpContent.ts` — added Market Regime Engine lesson in Indian Market Signals section with rule table, inputs, usage tips.
+
+### Verified with real market data
+- POST /api/regime/refresh returned: **regime=breakout, confidence=0.7**
+- Reason: "NIFTY recently crossed above 50 EMA · VIX 17.2 (low volatility = clean breakout)"
+- Inputs: NIFTY 24,196.75 · 50EMA 24,189.74 · 200EMA 24,770.26 · VIX 17.21 (-7.82%) · FII +₹382cr · DII -₹3,427cr
+- Browser: amber widget rendering exactly as designed with zap icon, full reasoning, inline stats.
+- /api/cadence/summary: 20 tasks, all on-track.
+- `validate:quick`: TypeScript ✅ ESLint ✅ Backend Syntax ✅ Smoke 17/17 ✅ → PIPELINE GREEN.
+
+### Interesting read from actual data
+The classifier caught a real regime transition: NIFTY is just barely above its 50 EMA (+0.029%) but below 200 EMA (24,196 vs 24,770). Combined with very low VIX (17.2, down 7.82%) and neutral-FII / bearish-DII — this is a textbook "breakout from choppy" setup. The 70% confidence correctly reflects that this is a fresh, uncertain transition rather than a strong trend.
+
+### Gotcha
+- Upstox historical-candle API returned only 174 days for a 260-day request — not enough for 200 EMA. Increased request to 500 days + added graceful fallback in service logic. Now works even if Upstox returns limited history.
+
+### Sprint 2 progress
+- ✅ #26 FII/DII (prev commit)
+- ✅ #30 Market Regime Engine (this commit)
+- 🟡 #27 Corp Actions + Earnings Calendar
+- 🟡 #28 Sector Rotation Heatmap
+- 🟡 #29 Bulk/Block Deals + Insider Trades
+
+### Files this commit
+- NEW: `backend/models/MarketRegime.js`
+- NEW: `backend/services/regimeService.js`
+- NEW: `backend/routes/regime.js`
+- MODIFIED: `backend/server.js` — route mount + 30-min cron
+- MODIFIED: `backend/services/cadenceService.js` — seed entry
+- NEW: `app/components/MarketRegimeWidget.tsx`
+- MODIFIED: `app/components/Dashboard.tsx` — widget mount
+- MODIFIED: `app/components/helpContent.ts` — regime lesson
+- MODIFIED: `project_logs/CHANGELOG.md`, `STATE.md`, `ROADMAP.md`
+
+---
+
 ## 2026-04-17 (late night, continuing⁵) — Sprint 2 #26 FII/DII Dashboard shipped
 
 First item of Sprint 2 (Indian market feeds). Widget + backend + cron + Cadence Registry seed + Help tab update all in one commit.

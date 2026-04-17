@@ -6,6 +6,7 @@ import LiveIndexBar from './LiveIndexBar';
 import PositionSizer from './PositionSizer';
 import DailyPnLWidget from './DailyPnLWidget';
 import FiiDiiWidget from './FiiDiiWidget';
+import MarketRegimeWidget from './MarketRegimeWidget';
 
 const BACKEND_URL = 'http://localhost:5002';
 
@@ -369,7 +370,10 @@ const Dashboard = () => {
         <PositionSizer />
       </div>
 
-      {/* Section B3: FII / DII flows (Sprint 2 #26 — Indian directional signal) */}
+      {/* Section B3: Market Regime (Sprint 2 #30) — top of Indian-signals row */}
+      <MarketRegimeWidget />
+
+      {/* Section B4: FII / DII flows (Sprint 2 #26 — Indian directional signal) */}
       <FiiDiiWidget />
 
       {/* Section C: Active Trade Setups Tracker */}

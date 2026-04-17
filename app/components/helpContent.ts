@@ -287,6 +287,22 @@ export const HELP_CONTENT: HelpSection[] = [
           'If scrape fails, widget shows last cached data (no gap in display).',
         ],
       },
+      {
+        title: 'Market Regime Engine (Dashboard widget)',
+        summary: 'Classifies current market into trending-bull / trending-bear / choppy / breakout / risk-off with reasoning + confidence.',
+        steps: [
+          'Inputs: NIFTY 20/50/200 EMA + VIX + VIX day-change + FII/DII latest EOD.',
+          'Rule set: risk-off (VIX >22 or +25%) → trending-bull (above EMAs + FII buying) → trending-bear (below EMAs + FII selling) → breakout (fresh 50 EMA cross + low VIX) → choppy (default).',
+          'Recomputes every 30 min during market hours (Mon-Fri 9:15–15:30).',
+          'Manual refresh via widget button OR POST /api/regime/refresh.',
+        ],
+        tips: [
+          '"Why" line shows the exact inputs that tipped the classification.',
+          'Confidence %: higher means stronger signal alignment across inputs.',
+          'Bot Validator layer (Sprint 3+) will use regime to gate strategies — a trending-bull-only strategy won\'t fire in choppy regime.',
+          'History is kept — useful for attribution ("this screen worked well when regime=trending-bull").',
+        ],
+      },
     ],
   },
 

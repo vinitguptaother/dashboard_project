@@ -82,12 +82,12 @@ Build a personal AI-powered trading dashboard for Vinit (Indian retail, real-mon
 - ✅ **Cadence Registry** — 18 scheduled tasks (13 system crons + 5 user activities) with heartbeat + watchdog. Per rule #5, every new cron must register here.
 - ✅ **Cadence Alerts Bell** — floating bell bottom-left, color-coded severity, one-shot toast on load, acknowledge button for user tasks.
 
-Sprint 2 in progress (Indian feeds):
+Sprint 2 in progress (Indian feeds) — 2 of 5 done:
 - ✅ **#26 FII/DII Dashboard** — NSE cookie-flow scraper + widget + 6:30 PM IST cron + Cadence Registry seeded.
+- ✅ **#30 Market Regime Engine** — classifies NIFTY regime (trending-bull/bear/choppy/breakout/risk-off) every 30 min using EMAs + VIX + FII/DII. Widget shows regime badge + "Why" reasoning. Bot Validator layer (Sprint 3+) will consume this for strategy gating.
 - 🟡 #27 Corporate Actions + Earnings Calendar
 - 🟡 #28 Sector Rotation Heatmap
 - 🟡 #29 Bulk/Block Deals + Insider Trades
-- 🟡 #30 Market Regime Engine
 - 🟡 #16 Post-Loss Cooldown — next up
 - 🟡 #17 Auto Journal — next up
 - 🟡 #18 Mistake Tagging — next up

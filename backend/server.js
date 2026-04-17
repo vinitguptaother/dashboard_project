@@ -205,6 +205,7 @@ app.use('/api/trade-checklist', require('./routes/tradeChecklist'));
 app.use('/api/trade-journal', require('./routes/tradeJournal'));
 app.use('/api/cadence', require('./routes/cadence'));
 app.use('/api/fii-dii', require('./routes/fiiDii'));
+app.use('/api/regime', require('./routes/regime'));
 
 // Error handling middleware
 app.use(errorHandler);
@@ -771,6 +772,23 @@ function startScheduledTasks() {
     } catch (error) {
       console.error('❌ Daily IV snapshot error:', error.message);
       cadenceService.reportRun('iv-snapshot', 'failure', error.message).catch(() => {});
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+  // Market Regime Engine — every 30 min during market hours Mon-Fri.
+  // Classifies market as trending-bull / bear / choppy / breakout / risk-off.
+  // Feeds into bot Validator layer (Sprint 3+) for regime-conditional strategies.
+  cron.schedule('*/30 9-15 * * 1-5', async () => {
+    try {
+      const { holidays } = holidayService.getHolidays();
+      if (!isMarketOpen(new Date(), holidays)) return;
+      const regimeService = require('./services/regimeService');
+      const doc = await regimeService.computeAndStore();
+      console.log(`🎯 Regime: ${doc.regime} (confidence ${doc.confidence}) — ${doc.reason.slice(0, 80)}`);
+      cadenceService.reportRun('market-regime', 'success', `${doc.regime} conf=${doc.confidence}`).catch(() => {});
+    } catch (error) {
+      console.error('❌ Market Regime error:', error.message);
+      cadenceService.reportRun('market-regime', 'failure', error.message).catch(() => {});
     }
   }, { timezone: 'Asia/Kolkata' });
 
