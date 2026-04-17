@@ -206,6 +206,7 @@ app.use('/api/trade-journal', require('./routes/tradeJournal'));
 app.use('/api/cadence', require('./routes/cadence'));
 app.use('/api/fii-dii', require('./routes/fiiDii'));
 app.use('/api/regime', require('./routes/regime'));
+app.use('/api/sector-rotation', require('./routes/sectorRotation'));
 
 // Error handling middleware
 app.use(errorHandler);
@@ -789,6 +790,23 @@ function startScheduledTasks() {
     } catch (error) {
       console.error('❌ Market Regime error:', error.message);
       cadenceService.reportRun('market-regime', 'failure', error.message).catch(() => {});
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+  // Sector Rotation — every 30 min during market hours, 15 min offset from regime.
+  // Tracks 12 NSE sector indices vs NIFTY: who's leading, who's lagging.
+  // Feeds into swing bot idea ranking (Sprint 3+) + sector-aware screen scoring.
+  cron.schedule('15,45 9-15 * * 1-5', async () => {
+    try {
+      const { holidays } = holidayService.getHolidays();
+      if (!isMarketOpen(new Date(), holidays)) return;
+      const sectorRotationService = require('./services/sectorRotationService');
+      const doc = await sectorRotationService.computeAndStore();
+      console.log(`📊 Sector Rotation: leaders=${doc.leaders.join(', ')} · laggards=${doc.laggards.join(', ')}`);
+      cadenceService.reportRun('sector-rotation', 'success', `leaders: ${doc.leaders.join('/')}`).catch(() => {});
+    } catch (error) {
+      console.error('❌ Sector Rotation error:', error.message);
+      cadenceService.reportRun('sector-rotation', 'failure', error.message).catch(() => {});
     }
   }, { timezone: 'Asia/Kolkata' });
 

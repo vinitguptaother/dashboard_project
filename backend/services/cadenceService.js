@@ -119,6 +119,13 @@ const SEED_TASKS = [
     type: 'system', cadence: 'custom', schedule: '*/30 9-15 * * 1-5',
     graceMinutes: 60, category: 'market-data', marketDaysOnly: true,
   },
+  {
+    taskKey: 'sector-rotation',
+    name: 'Sector Rotation scanner (every 30 min, market hours)',
+    description: 'Refreshes 12 NSE sector indices vs NIFTY. Computes 1D/1W/1M relative strength; surfaces leaders + laggards for swing bot + screen scoring.',
+    type: 'system', cadence: 'custom', schedule: '15,45 9-15 * * 1-5',
+    graceMinutes: 60, category: 'market-data', marketDaysOnly: true,
+  },
 
   // ── User activities (no automation; user is expected to perform them)
   {

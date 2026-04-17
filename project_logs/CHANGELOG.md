@@ -14,6 +14,61 @@ Format:
 
 ---
 
+## 2026-04-17 (late night, continuing⁷) — Sprint 2 #28 Sector Rotation Heatmap shipped
+
+Natural pair with #30 Regime Engine — both feed the bot Validator layer. Tracks 12 NSE sector indices vs NIFTY 50 benchmark across 1D / 1W / 1M horizons. Shows who's leading (tailwind for longs) and who's lagging (avoid).
+
+### Added — Backend
+- `backend/models/SectorPerformance.js` — snapshot schema: niftyLevel + day/week/month NIFTY %, array of 12 sector snapshots (each with ltp, day/week/month %, relative strength vs NIFTY at 1D/1W/1M), leaders[], laggards[], computedAt.
+- `backend/services/sectorRotationService.js`:
+  - 12 sectors tracked: Bank, IT, Auto, Pharma, FMCG, Metal, Realty, Media, PSU Bank, Pvt Bank, Energy, Fin Services.
+  - `fetchDailyCloses(key, 45)` — pulls 45-day closes for each index (NEWEST first from Upstox).
+  - `classifyCurrent()` — computes day% (latest vs prev), week% (vs close[5]), month% (vs close[21]) + relative strength per sector.
+  - Leaders = top 3 by 1W rel strength · Laggards = bottom 3.
+  - Parallel fetch via Promise.all (13 total Upstox requests per refresh).
+- `backend/routes/sectorRotation.js` — GET /current, GET /history?limit=N, POST /refresh.
+- `backend/server.js`:
+  - Mounted `/api/sector-rotation`.
+  - NEW cron `15,45 9-15 * * 1-5` Asia/Kolkata — recomputes every 30 min during market hours (offset from regime cron to spread load). Reports to Cadence Registry.
+
+### Added — Cadence Registry
+- New seed task `sector-rotation` (category: market-data, marketDaysOnly).
+
+### Added — Frontend
+- `app/components/SectorRotationHeatmap.tsx` — 12-tile color-coded heatmap:
+  - Horizon toggle 1D / 1W / 1M at top-right.
+  - Leaders + laggards bar (always 1W — most stable swing window) with Flame / Snowflake icons.
+  - Tiles sorted best-to-worst by relative strength for chosen horizon.
+  - Color scale: deep green (RS ≥ +3) → gray (neutral) → deep red (RS ≤ -3).
+  - Each tile shows short sector name + absolute % + RS value.
+  - Manual refresh + 5-min poll.
+- `app/components/Dashboard.tsx` — mounted as Section B4 between Regime (B3) and FII/DII (B5).
+- `app/components/helpContent.ts` — added lesson under "Indian Market Signals" with how-to + 5 trading tips.
+
+### Fixed — During build
+- First fetch: `NSE_INDEX|Nifty Private Bank` and `Nifty Financial Services` returned empty from Upstox. Probed alternate names — correct Upstox keys are `Nifty Pvt Bank` and `Nifty Fin Service`.
+
+### Verified (live market data, NIFTY at 24,196.75)
+```
+Leaders (1W):  NIFTY METAL · NIFTY ENERGY · NIFTY REALTY
+Laggards (1W): NIFTY PVT BANK · NIFTY BANK · NIFTY IT
+
+Top sectors by 1W relative strength:
+  METAL   +5.47%  RS +4.64   ← commodity momentum
+  ENERGY  +4.70%  RS +3.87
+  REALTY  +4.53%  RS +3.70
+  ...
+  PVT BANK +0.56%  RS -0.27  ← banks lagging
+```
+
+### Sprint 2 status
+3 of 5 done: ✅ #26 FII/DII · ✅ #30 Market Regime · ✅ #28 Sector Rotation · 🟡 #27 Corp Actions · 🟡 #29 Bulk/Block.
+
+### Next
+#27 Corporate Actions + Earnings Calendar OR #29 Bulk/Block Deals — both are NSE-scraper jobs (like FII/DII), should go fast.
+
+---
+
 ## 2026-04-17 (late night, continuing⁶) — Sprint 2 #30 Market Regime Engine shipped
 
 Built on top of #26 FII/DII (just shipped). Classifies the Indian market into one of 5 regimes. Cornerstone for Sprint 3+ bot Validator layer.

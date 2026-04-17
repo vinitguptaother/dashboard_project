@@ -303,6 +303,25 @@ export const HELP_CONTENT: HelpSection[] = [
           'History is kept — useful for attribution ("this screen worked well when regime=trending-bull").',
         ],
       },
+      {
+        title: 'Sector Rotation Heatmap (Dashboard widget)',
+        summary: 'Shows 12 NSE sector indices color-coded by relative strength vs NIFTY across 1D / 1W / 1M horizons.',
+        steps: [
+          'Sectors tracked: Bank, IT, Auto, Pharma, FMCG, Metal, Realty, Media, PSU Bank, Private Bank, Energy, Fin Services.',
+          'Each tile shows absolute % change + RS (relative strength = sector% − NIFTY%).',
+          'Green = outperforming NIFTY · Red = underperforming. Sorted best-to-worst for the chosen horizon.',
+          'Toggle 1D / 1W / 1M at top-right; leaders + laggards bar is always 1W (the most stable swing-trade window).',
+          'Recomputes every 30 min during market hours (offset 15,45 from regime cron to spread load).',
+          'Manual refresh via widget button OR POST /api/sector-rotation/refresh.',
+        ],
+        tips: [
+          'Enter longs in sectors in the TOP ROW of the heatmap (tailwind).',
+          'Avoid/exit longs in sectors in the BOTTOM ROW (headwind).',
+          'Rotation reversal = sector jumps from laggard to leader over a few sessions — early momentum entry.',
+          'Combine with Regime: trending-bull + leading sector = strongest setup.',
+          'History is kept; future feature: sparkline per sector to see rotation over 30 days.',
+        ],
+      },
     ],
   },
 
