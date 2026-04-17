@@ -63,6 +63,18 @@ Build a personal AI-powered trading dashboard for Vinit (Indian retail, real-mon
 
 ---
 
+## 🚀 Sprint 1 progress (started 2026-04-17 late night)
+
+- ✅ #38 Data Health Panel — wired (top-level tab `data-health`)
+- ✅ #40 Feature/Test Control Center — wired (top-level tab `control-center`)
+- ✅ #39 Broker Readiness — covered by SystemHealthPanel (inside SettingsTab)
+- ✅ **#13 Pre-Trade Gate — Phase 1 shipped.** Modal fires on Options "Trade All", records checklist via `/api/trade-checklist`. Not yet enforcing (Phase 2).
+- 🟡 #14 Position Sizing Gate — next up
+- 🟡 #15 Daily Loss Circuit Breaker — next up
+- 🟡 #16 Post-Loss Cooldown — next up
+- 🟡 #17 Auto Journal — next up
+- 🟡 #18 Mistake Tagging — next up
+
 ## 🟢 Pipeline State (2026-04-17 late night)
 
 - ✅ TypeScript: GREEN

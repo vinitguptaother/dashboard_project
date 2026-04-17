@@ -14,6 +14,75 @@ Format:
 
 ---
 
+## 2026-04-17 (late night, post-Codex) — Sprint 1 begun: #13 Pre-Trade Gate (Phase 1) shipped
+
+**Continuing momentum after pipeline went GREEN.** Started executing Sprint 1 of BOT_BLUEPRINT.
+
+### Sprint 1 progress summary
+- #38 Data Health Panel — ✅ already wired (pre-existing WIP, verified backend/frontend both work)
+- #40 Feature/Test Control Center — ✅ already wired (pre-existing WIP, verified)
+- #39 Broker Readiness — partially covered by SystemHealthPanel (pre-existing WIP, wired into SettingsTab)
+- **#13 Pre-Trade Gate (Execution Checklist) — Phase 1 shipped this session**
+
+### #13 Pre-Trade Gate — Phase 1 (tracking only, not yet blocking)
+Per BOT_BLUEPRINT item #13, the Pre-Trade Gate is the single highest-ROI feature per all research. Phased approach:
+- **Phase 1 (this session):** records checklist completion before trade submission. Trade is NOT blocked — this captures adherence baseline data.
+- **Phase 2 (next session):** backend trade POSTs (`/api/options/trades`, `/api/trade-setup/paper`, future bot trades) will require a valid recent `checklistId` with `allPassed=true`, else 403.
+
+### Added — Backend
+- `backend/models/TradeChecklist.js` — Mongoose schema with 6 checks (trendAligned / riskAcceptable / stopLossDefined / noMajorNewsRisk / capitalAvailable / notOverexposed), each `'pass' | 'fail' | 'na'`. Pre-save hook auto-computes `allPassed`, `passCount`, `failCount`. Indexed for adherence analytics.
+- `backend/routes/tradeChecklist.js` — 4 endpoints:
+  - `POST /api/trade-checklist` — record a completion
+  - `GET  /api/trade-checklist/stats?days=30` — adherence %, bySource aggregation
+  - `GET  /api/trade-checklist/recent?limit=20` — last N for Journal UI
+  - `GET  /api/trade-checklist/:id` — single lookup (Phase 2 gate will call this)
+- `backend/server.js` — mounted at `/api/trade-checklist`
+
+### Added — Frontend
+- `app/components/PreTradeGate.tsx` — reusable modal with:
+  - 6 checklist items with Pass/Fail/N/A toggles (defaults to N/A; "Record + Proceed" disabled until every item is set)
+  - Trade context summary (source / underlying / symbol / strategyName / qty / entry / SL / target)
+  - Notes textarea (optional thesis/catalyst/invalidation capture)
+  - Live status footer: pass count (green), fail count (red), unset count (gray)
+  - Dynamic button label: "N unset" → "Record + Proceed" (if all pass) → "Record + Proceed Anyway" (if any fail)
+  - Pill badges: "All passed — good to go" OR "Proceed with caution (N failed)"
+- `app/components/options/OptionsTab.tsx` — `handleTradeAll` refactored:
+  - Click "Trade All" → opens PreTradeGate modal
+  - Modal submits checklist → `onConfirmed(checklistId)` fires
+  - Only THEN does the actual trade flow run (off-hours confirm, portfolio prompt, paperTrade call)
+  - Same code paths as before — checklist is PREPENDED to the flow, not replacing any logic
+
+### Verified (2026-04-17 this session)
+- API smoke test: `POST /api/trade-checklist` with sample data → 200, `_id` returned, `allPassed: true` computed correctly
+- API stats: `GET /api/trade-checklist/stats` → 200 with adherencePct, bySource aggregation
+- Browser: clicked Short Straddle preset → clicked Trade All → modal opened with "Short Straddle · NIFTY · qty 2" context, all 6 checks rendered, footer showed "0 pass / 0 fail / 6 unset", button correctly disabled
+- `validate:quick` remains GREEN (TypeScript ✅ / ESLint ✅ / Backend Syntax ✅ / Smoke 17/17 ✅)
+
+### Design decisions
+- **6 checks, not more.** Research warned against checklist bloat. These six cover the critical discipline axes.
+- **N/A as default.** User must make a conscious choice for each item — not a passive "everything's fine" click-through.
+- **"Record + Proceed Anyway" when some fail.** Phase 1 lets user proceed even with failed items — we're measuring adherence, not yet enforcing. This gives us data on how often people proceed despite failing checks.
+- **Trade context snapshot at checklist time.** Even if you reject the trade later, we captured what you were about to do. Useful for behavioral review.
+
+### Known limitations (Phase 1)
+- Not yet wired into `/api/trade-setup/paper` (stock paper trades) or `/api/options/trades/:id/ai-review`. Only the Options "Trade All" flow.
+- Phase 2 enforcement (hard 403 block) not yet live — Phase 1 records but doesn't gate.
+- No UI for viewing adherence stats over time yet. That goes in Strategy Performance Lab (feature #20) later.
+
+### Also this session — operational improvements
+- **Took TRUSTED backup** (first one — earlier ones were UNTRUSTED due to lint RED). Snapshot at `F:\Dashboard backup\last-known-good` at commit `fb63d11`.
+- **Added backup-first rule to CLAUDE.md** so future Claude sessions run `npm run backup` as first action.
+
+### Files changed this session (Sprint 1 item #13 work)
+- NEW: `backend/models/TradeChecklist.js`
+- NEW: `backend/routes/tradeChecklist.js`
+- MODIFIED: `backend/server.js` (route mount)
+- NEW: `app/components/PreTradeGate.tsx`
+- MODIFIED: `app/components/options/OptionsTab.tsx` (modal integration)
+- MODIFIED: `project_logs/STATE.md`, `project_logs/CHANGELOG.md`, `project_logs/ROADMAP.md`
+
+---
+
 ## 2026-04-17 (late night, post-blueprint) — Codex fix pass: pipeline GREEN
 
 Triggered by Codex review flagging (1) lint errors in 3 new panels, (2) auth token key mismatch. User asked: "make lint green for the new panels + fix token-key mismatch + rerun validation."

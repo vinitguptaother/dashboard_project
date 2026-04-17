@@ -9,11 +9,13 @@ import { useOptionsData, useStrategyBuilder, useTrades, useLivePnL, usePortfolio
 import { BACKEND_URL } from './constants';
 import { MarginData, PayoffPoint } from './types';
 import { useMarketStatus } from '../../hooks/useMarketStatus';
+import PreTradeGate from '../PreTradeGate';
 
 export default function OptionsTab() {
   const [underlying, setUnderlying] = useState('NIFTY');
   const [showChainModal, setShowChainModal] = useState(false);
   const [showChargesModal, setShowChargesModal] = useState(false);
+  const [showPreTradeGate, setShowPreTradeGate] = useState(false);
   const marketStatus = useMarketStatus();
 
   // Data hook
@@ -159,8 +161,15 @@ export default function OptionsTab() {
     setLegs(newLegs);
   }, [lotSize, setLegs]);
 
-  // Trade All action
-  const handleTradeAll = useCallback(async () => {
+  // Trade All action — opens Pre-Trade Gate first, actual trade fires after confirmation
+  const handleTradeAll = useCallback(() => {
+    if (!payoff || !legs.length) return;
+    setShowPreTradeGate(true);
+  }, [payoff, legs]);
+
+  // Fires AFTER user completes the Pre-Trade Gate checklist (Phase 1: tracking only)
+  const handleTradeAllConfirmed = useCallback(async (_checklistId: string) => {
+    setShowPreTradeGate(false);
     if (!payoff || !legs.length) return;
 
     // Off-hours warning — option premiums in the chain are last-close, IV is stale
@@ -318,6 +327,21 @@ export default function OptionsTab() {
         isOpen={showChargesModal}
         onClose={() => setShowChargesModal(false)}
         legs={legs}
+      />
+
+      {/* Pre-Trade Gate (Execution Checklist) — fires before paper trade is saved */}
+      <PreTradeGate
+        isOpen={showPreTradeGate}
+        onClose={() => setShowPreTradeGate(false)}
+        onConfirmed={handleTradeAllConfirmed}
+        tradeContext={{
+          source: 'manual',
+          underlying,
+          strategyName,
+          intendedQty: legs.reduce((sum, l) => sum + (l.qty || 0), 0) * multiplier,
+          intendedEntry: spotPrice,
+        }}
+        title="Pre-Trade Checklist — Options Paper Trade"
       />
     </div>
   );
