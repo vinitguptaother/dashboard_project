@@ -1,7 +1,33 @@
 # STATE — Where the Project Stands Today
 
-*Updated: 2026-04-17 (late evening — Sensibull sprint + audit + security cleanup + key rotation)*
+*Updated: 2026-04-17 (late night — FULL BLUEPRINT locked: 49 features, 4-bot architecture, 6-sprint plan)*
 *Next update: end of next session*
+
+> **📌 MUST READ FIRST in new session:**
+> 1. [`BOT_BLUEPRINT.md`](BOT_BLUEPRINT.md) — canonical feature blueprint (49 features, architectural decisions)
+> 2. This file — current state
+> 3. [`ROADMAP.md`](ROADMAP.md) — sprint order
+> 4. [`CHANGELOG.md`](CHANGELOG.md) — recent history (only if needed)
+
+## 🎯 Vision (locked 2026-04-17 with user)
+
+Build a personal AI-powered trading dashboard for Vinit (Indian retail, real-money real-capital trader) with:
+- **4 fully separate bots** (swing stocks, long-term stocks, options selling, options buying), each with own capital, P&L, kill switch, validation path
+- **Shared infrastructure** (scanner, validator, executor, risk engine, paper engine, strategy library, compliance log)
+- **Hybrid strategy library** — 14 curated strategies + quarterly Perplexity additions
+- **Realistic paper trading** — paper P&L within 5% of what live would be (slippage, STT, brokerage, GST, latency, circuits, tax tagging)
+- **Hard-coded risk limits** — per-trade, daily, concurrent positions, sector exposure, kill switches
+- **SEBI compliance from Day 1** — Algo-ID-ready logs, static IP, OAuth 2FA
+- **Discipline enforcement** — execution checklist, position sizing gate, daily loss breaker, post-loss cooldown (applied to bot + manual trades)
+- **Indian market data** — FII/DII, corp actions, sector rotation, bulk/block, regime engine
+- **Parallel UI section** — "Bot Command Center" alongside existing Screens + AI workflow
+
+## 📊 Capital progression plan (from user)
+
+- Phase 1: Paper only, simulated capital (₹1L to ₹10L test portfolios)
+- Phase 2: Real money starting ₹2.5L (1 lot equivalent)
+- Phase 3: Scale to ₹20L, then ₹2cr, then beyond
+- Each bot graduates independently based on its own validation data
 
 ---
 

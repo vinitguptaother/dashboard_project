@@ -1,6 +1,35 @@
 # ROADMAP — Planned Features & Ideas
 
-*Updated: 2026-04-17 (evening — Sensibull parity sprint COMPLETE, #1–#5 all shipped)*
+*Updated: 2026-04-17 (late night — FULL BLUEPRINT locked with Vinit: 49 features + 4-bot architecture)*
+
+> **📌 MASTER REFERENCE: [`BOT_BLUEPRINT.md`](BOT_BLUEPRINT.md)** — canonical document with all 49 features, architectural decisions, sprint order, and locked choices. Read this first if context was lost.
+
+## 🎯 The 49-feature blueprint (summary)
+
+- **A. 4 Bots (4 features)** — Swing, Long-term, Options Sell, Options Buy — each with own capital, kill switch, P&L, strategy list
+- **B. Bot Core Infra (8 features)** — Scanner, Validator, Executor, Strategy Library, Realistic Paper, Risk Engine, Kill Switches, Learning
+- **C. Discipline (4 features)** — Execution Checklist, Position Sizing Gate, Daily Loss Breaker, Post-Loss Cooldown
+- **D. Journal (5 features)** — Auto Journal, Mistake Tagging, Trade Replay, Strategy Performance Lab, Screen Outcome Tracker
+- **E. AI (4 features)** — Better Prompts, Reasoning Transparency, Confidence Scores, Consistency Checker
+- **F. Indian Feeds (5 features)** — FII/DII, Corp Actions, Sector Rotation, Bulk/Block, Market Regime Engine
+- **G. Alerts (4 features)** — Price/Sound, Event Triggers, Telegram, Daily Brief
+- **H. Workflow (6 features)** — Idea Queue, Saved Layouts, Portfolio Risk, Data Health, Broker Readiness, Control Center
+- **I. Options Depth (3 features)** — Portfolio Greeks+Correlation, IV Rank/Term/Skew, Simulator Enhancements
+- **J. Compliance+Tax (3 features)** — Tax P&L Tagger, Quicko Export, SEBI Compliance Log
+- **K. Existing Keep+Enhance (3 features)** — Options Tab (Sensibull), Screen Scoring, Paper Trading Tab
+
+## 🔒 Architectural decisions (locked, do not re-debate)
+
+| Decision | Locked choice |
+|---|---|
+| Bot architecture | 4 fully separate bots with shared infrastructure |
+| Strategy library | Hybrid: 14 curated + quarterly Perplexity additions |
+| Paper trading realism | Full realism (slippage + costs + latency + tax) |
+| Capital allocation | Manual per-bot in Settings UI |
+| Graduation criteria | TBD — user decides when approaching live |
+| SEBI compliance | Build from Day 1 |
+
+
 
 > **Purpose:** Captures every feature, enhancement, or idea that Vinit and Claude discuss but haven't yet built. Organized by when it's likely to ship. **Maintained by Claude** — when we agree on something new during a session, it lands here before the session ends.
 >
@@ -8,6 +37,30 @@
 > - `STATE.md` — what's working today
 > - `CHANGELOG.md` — what shipped when
 > - **This file** — what's planned and why
+
+---
+
+## 📋 Build Order (6 sprints to paper-ready, then TBD weeks to live)
+
+**Sprint 1 (Weeks 1–3): Discipline loop + Data health**
+Items: 13 Execution Checklist, 14 Position Sizing Gate, 15 Daily Loss Breaker, 16 Post-Loss Cooldown, 17 Auto Journal, 18 Mistake Tagging, 38 Data Health Panel, 39 Broker Readiness
+
+**Sprint 2 (Weeks 4–6): Indian market feeds**
+Items: 26 FII/DII, 27 Corp Actions Calendar, 28 Sector Rotation, 29 Bulk/Block Deals, 30 Market Regime Engine
+
+**Sprint 3 (Weeks 7–10): Bot infrastructure + SEBI compliance**
+Items: 5 Scanner, 6 Validator, 7 Executor, 9 Realistic Paper Engine, 10 Risk Engine, 11 Kill Switches, 46 SEBI Compliance Log
+
+**Sprint 4 (Weeks 11–14): 4 Bots + first 6 strategies + Learning Engine**
+Items: 1 Swing Bot, 2 Long-term Bot, 3 Options Sell Bot, 4 Options Buy Bot, 8 Strategy Library (partial — 6 strategies), 12 Learning Engine
+
+**Sprint 5 (Weeks 15–16): Complete Strategy Library + Start Paper Trading**
+Items: 8 Strategy Library (remaining 8 strategies) + begin paper trading
+
+**Sprint 6 (Weeks 17+): Enhancements + monitoring**
+Items: 19 Trade Replay, 20 Strategy Perf Lab, 21 Screen Outcome Tracker, 22–25 AI enhancements, 31–34 alerts/brief/telegram, 35 Idea Queue, 36 Saved Layouts, 37 Portfolio Risk, 40 Control Center, 41–43 Options depth, 44–45 Tax
+
+**Live graduation:** only after 50+ trades per segment + user decides validation bar.
 
 ---
 

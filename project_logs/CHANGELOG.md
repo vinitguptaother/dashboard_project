@@ -14,6 +14,61 @@ Format:
 
 ---
 
+## 2026-04-17 (late night) — Full blueprint session: 49 features + 4-bot architecture locked
+
+**No code changes this entry — pure planning session.** Output: `project_logs/BOT_BLUEPRINT.md` (new canonical document).
+
+### Context
+User asked to pause feature-building and design the complete dashboard vision. Session included: 3 parallel web research agents (Indian platforms, global pro platforms, retail trader voices + bots), analysis of user's 25-feature list, analysis of user's Claude-chat bot blueprint v1.0, back-and-forth clarification, final synthesis.
+
+### Decisions locked
+- 4 fully separate bots (swing / long-term / options-sell / options-buy) with shared libraries
+- Hybrid strategy library (14 curated + quarterly Perplexity additions)
+- Full realism paper trading (paper P&L within 5% of live — slippage, STT, brokerage, GST, latency, circuits, tax tagging)
+- Manual per-bot capital allocation in Settings UI
+- Graduation criteria for live: TBD (user decides when approaching live)
+- SEBI compliance built from Day 1 (structured logs, prep for Algo-ID)
+- UI: parallel "Bot Command Center" section alongside existing Screens + AI
+
+### 49 features finalized across 11 categories
+A: 4 Bots | B: 8 Bot Infra | C: 4 Discipline | D: 5 Journal | E: 4 AI | F: 5 Indian Feeds | G: 4 Alerts | H: 6 Workflow | I: 3 Options Depth | J: 3 Compliance+Tax | K: 3 Existing Keep+Enhance
+
+### 6-sprint build order
+- Sprint 1 (Weeks 1–3): Discipline loop + Data health
+- Sprint 2 (Weeks 4–6): Indian market feeds
+- Sprint 3 (Weeks 7–10): Bot infrastructure + SEBI
+- Sprint 4 (Weeks 11–14): 4 Bots + first 6 strategies
+- Sprint 5 (Weeks 15–16): Complete strategy library + start paper
+- Sprint 6 (Weeks 17+): Enhancements + monitoring
+
+### Key pushbacks on user's original blueprint (honest mentor mode)
+- **Perplexity-as-strategy-discovery rejected** — LLMs output generic strategies with no edge. Replaced with curated library + Perplexity-as-context.
+- **55% win rate threshold rejected** — not enough. Must include Sharpe, Sortino, profit factor, max DD, post-tax costs, walk-forward validation.
+- **Upstox-LTP-as-paper-fill rejected** — creates 10–20% paper-vs-live gap. Full cost model required before real money.
+- **"Learning engine" label softened** — it's statistical tracking, not ML. Don't oversell.
+- **SEBI compliance added** — April 2026 rules require Algo-ID, static IP, OAuth 2FA, compliance logs. Must be Day-1.
+- **Sample sizes increased** — 10 trades is noise. Minimum 30 trades for statistical significance, ideally 50+ per segment.
+
+### Files created / updated
+- `project_logs/BOT_BLUEPRINT.md` (NEW) — canonical source of truth
+- `project_logs/ROADMAP.md` — added 49-feature summary, 6-sprint plan, architectural decisions
+- `project_logs/STATE.md` — added vision section, master-reference pointers
+- `project_logs/CHANGELOG.md` — this entry
+
+### Lessons learned
+- **User overwhelm is real.** First presentation of analysis was too dense ("this was too much for me to comprehend"). Second pass was visual + categorized + shorter — much better received.
+- **Agent parallelism saved context.** 3 research agents in background kept main conversation lean while deep research happened.
+- **Honest mentor > cheerleader.** User explicitly asked for honest analysis. Pushback on their blueprint was welcomed when accompanied by reasoning and alternatives.
+- **"Keep a tab" is literal.** User said they won't remember decisions; depends on project_logs. Every decision must land in a persistent file.
+
+### Open items for future sessions
+1. User's additional bot ideas — user said they'd share more; treat this session's blueprint as v1 and merge in when user provides.
+2. Strategy library details — 14 strategies need full rule coding (Sprint 4 starts this).
+3. Graduation criteria — user to decide before bot goes live.
+4. Capital allocation — user to set per bot in Settings UI once bots exist.
+
+---
+
 ## 2026-04-17 — Options Tab Sensibull parity: #1–#4 complete + logs system + security cleanup (multi-part session)
 
 **Branch:** `feature/options-tab-sensibull`
