@@ -19,6 +19,7 @@ import OptionsTab from './components/options/OptionsTab';
 import ActivitySummaryTab from './components/ActivitySummaryTab';
 import DataHealthPanel from './components/DataHealthPanel';
 import ControlCenterTab from './components/ControlCenterTab';
+import ComplianceTab from './components/ComplianceTab';
 import HelpTab from './components/HelpTab';
 import AIChatbot from './components/AIChatbot';
 import StickyNotes from './components/StickyNotes';
@@ -63,6 +64,8 @@ export default function Home() {
         return <DataHealthPanel />;
       case 'control-center':
         return <ControlCenterTab />;
+      case 'compliance':
+        return <ComplianceTab />;
       case 'help':
         return <HelpTab />;
       case 'settings':

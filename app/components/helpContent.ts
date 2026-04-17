@@ -492,6 +492,55 @@ export const HELP_CONTENT: HelpSection[] = [
     ],
   },
 
+  // ─── SEBI Compliance Log (Sprint 3 #46) ───────────────────────────────────
+  {
+    id: 'compliance',
+    title: 'SEBI Compliance Log',
+    intro: 'Immutable audit trail of every algo decision (accepted, rejected, canceled, filled, target hit, stop hit). Required from Day 1 for live algorithmic trading in India.',
+    lessons: [
+      {
+        title: 'Algo Registry',
+        summary: '5 algos pre-registered: MANUAL-V1, SWING-V1, LONGTERM-V1, OPTSELL-V1, OPTBUY-V1. SEBI requires a unique algoId per strategy + declared static IP when live.',
+        tips: [
+          'Seeded automatically on server boot — idempotent (safe to restart).',
+          'Every compliance event carries an algoId. When live, each algoId must map to a declared static IP address.',
+          'Bump version (v1 → v2) when you materially change a strategy\'s logic. Past events keep the old algoId.',
+        ],
+      },
+      {
+        title: 'Event types',
+        summary: 'Every stage of a trade life-cycle is recorded:',
+        steps: [
+          '`generated`  — Scanner produced a candidate (Sprint 4+)',
+          '`evaluated`  — Risk Engine ran all gates (Sprint 3 #10)',
+          '`accepted`   — Trade passed all gates; TradeSetup persisted',
+          '`rejected`   — Trade blocked; reasons[] captured in detail',
+          '`executed`   — Order sent to broker (live only)',
+          '`filled`     — Broker confirmed fill (live only)',
+          '`canceled`   — Manual cancellation or kill-switch-triggered abort',
+          '`target_hit` / `sl_hit` / `expired` — outcome',
+        ],
+        tips: [
+          'Paper trades produce accepted → target_hit/sl_hit (no executed/filled since there\'s no broker).',
+          'Kill-switch activations mirror here as `canceled` events — one unified audit feed.',
+        ],
+      },
+      {
+        title: 'Filters + CSV export',
+        summary: 'Filter by bot, decision, symbol, date range. Export CSV for SEBI submission if audited.',
+        steps: [
+          'Click "Export CSV" — downloads the filtered set with full schema (timestamp, algoId, decision, reasoning, reasons, latency, IP, etc).',
+          'Header fields: at, algoId, botId, decision, symbol, action, quantity, entryPrice, stopLoss, target, price, reasoning, reasons, clientIp, staticIp, latencyMs, orderRef, tradeSetupId.',
+          'Retention: 7 years (no auto-delete). When you purge, do it manually and keep the exported CSV.',
+        ],
+        tips: [
+          'Export weekly for off-site backup — compliance data shouldn\'t depend on a single MongoDB instance.',
+          'When SEBI audits, they may ask for a specific date range + algoId. Filter, then export.',
+        ],
+      },
+    ],
+  },
+
   // ─── System self-awareness ────────────────────────────────────────────────
   {
     id: 'system-health',

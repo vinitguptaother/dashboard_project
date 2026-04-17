@@ -28,7 +28,8 @@ import {
   ClipboardList,
   HeartPulse,
   Wrench,
-  BookOpen
+  BookOpen,
+  FileText
 } from 'lucide-react';
 import RealTimeNotification from './RealTimeNotification';
 import MarketStatusBadge from './MarketStatusBadge';
@@ -174,6 +175,7 @@ const Navigation = ({ activeTab, setActiveTab }: NavigationProps) => {
     { id: 'activity', label: 'Activity', icon: ClipboardList, visible: true },
     { id: 'data-health', label: 'Health', icon: HeartPulse, visible: true },
     { id: 'control-center', label: 'Control', icon: Wrench, visible: true },
+    { id: 'compliance', label: 'Compliance', icon: FileText, visible: true },
     { id: 'help', label: 'Help', icon: BookOpen, visible: true },
     { id: 'settings', label: 'Settings', icon: Settings, visible: true },
   ];

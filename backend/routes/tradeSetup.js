@@ -610,6 +610,25 @@ router.post('/paper', async (req, res) => {
     const saved = await doc.save();
     apiLogger.info('TradeSetup', 'paper:created', { symbol: saved.symbol, id: saved._id, segment: seg, botId: saved.botId, entryFillPrice });
 
+    // BOT_BLUEPRINT #46 — SEBI Compliance Log
+    try {
+      const compliance = require('../services/complianceService');
+      await compliance.recordEvent({
+        botId: saved.botId || 'manual',
+        tradeSetupId: saved._id,
+        decision: 'accepted',
+        symbol: saved.symbol,
+        action: saved.action,
+        quantity: saved.quantity || 0,
+        entryPrice: saved.entryPrice,
+        stopLoss: saved.stopLoss,
+        target: saved.target,
+        price: entryFillPrice || saved.entryPrice,
+        reasoning: saved.reasoning || '',
+        clientIp: req.ip || '',
+      });
+    } catch (e) { /* logged inside service */ }
+
     res.json({ status: 'success', data: saved });
   } catch (error) {
     apiLogger.error('TradeSetup', 'paper:create', error);

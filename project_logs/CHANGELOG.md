@@ -14,6 +14,67 @@ Format:
 
 ---
 
+## 2026-04-17 (late night, Sprint 3 continuing³) — Sprint 3 #46 SEBI Compliance Log shipped
+
+SEBI-grade immutable audit trail for every algo decision. Must exist from Day 1 of bot trading (per blueprint lock). Unified feed: every paper trade, every rejection, every kill event — all written to a single collection with declared algoIds.
+
+### Added — Backend
+- `backend/models/AlgoRegistry.js` — SEBI declaration table: algoId (unique, uppercase), botId, strategy, description, owner, staticIp, version, approvedAt, active. Seeded on boot with 5 default algos: `MANUAL-V1`, `SWING-V1`, `LONGTERM-V1`, `OPTSELL-V1`, `OPTBUY-V1`.
+- `backend/models/ComplianceEvent.js` — immutable event log. Fields: algoId (indexed), botId, tradeSetupId, decision (enum of 10 states), symbol, action, quantity, entry/stopLoss/target/price snapshots, reasoning, reasons[], checks (risk-gate snapshot), clientIp, staticIp, latencyMs, orderRef, at. Indexed on `at`, `algoId+at`, `decision+at`, `symbol+at` for fast audit queries.
+- `backend/services/complianceService.js`:
+  - `seedAlgoRegistry()` — idempotent upsert of 5 default algos on boot.
+  - `registerAlgo()` / `getAlgoRegistry()` / `algoIdForBot()` helpers.
+  - `recordEvent()` — the universal write path; never throws, just warns on failure so compliance writes never break the calling flow.
+  - `getEvents({ filters, limit, skip })` — paginated with full filter set (algoId, botId, decision, symbol, from, to).
+  - `getStats({ days })` — aggregates by decision + bot for the period.
+  - `exportCsv({ from, to, algoId, botId, decision })` — returns CSV with 18-column schema for SEBI submission.
+- `backend/routes/compliance.js`:
+  - GET /events, /stats, /algo-registry, /export.csv
+  - POST /algo-registry (upsert)
+  - Export endpoint streams with proper `Content-Type: text/csv` + `Content-Disposition: attachment` header.
+- `backend/server.js`:
+  - Mounted `/api/compliance`.
+  - Seeds algo registry in `startScheduledTasks()` after Cadence Registry.
+  - Paper-trade-monitor cron: on SL/TARGET hit now records a `target_hit` / `sl_hit` event with reasoning ("Target crossed at ₹X. Net ₹Y, charges ₹Z").
+- `backend/routes/tradeSetup.js` POST /paper: records an `accepted` event on save with full trade snapshot + clientIp.
+- `backend/services/killSwitchService.js`: `recordEvent()` now mirrors every kill activation/clearance to ComplianceEvent (activate → `canceled`, clear → `evaluated`), keeping the audit feed unified.
+
+### Added — Frontend
+- `app/components/ComplianceTab.tsx` — new top-level tab with:
+  - Header with download-CSV button.
+  - Stats row (last 30 days): total, accepted, rejected, target hits, SL hits, canceled + bot breakdown chips.
+  - Algo Registry cards showing each declared algo.
+  - Filter panel: bot, decision, symbol, date range.
+  - Event table (paginated, 50/page) with color-coded decision badges + icon per type.
+  - Reasoning truncated with full tooltip.
+- `app/components/Navigation.tsx` — new "Compliance" tab with FileText icon.
+- `app/page.tsx` — routes `compliance` → `<ComplianceTab />`.
+- `app/components/helpContent.ts` — new `compliance` section with 3 lessons (algo registry, event types, CSV export).
+
+### Verified (live)
+```
+1) Algo Registry: 5 algos seeded (MANUAL-V1, SWING-V1, LONGTERM-V1, OPTSELL-V1, OPTBUY-V1).
+2) Killed options-buy bot → Compliance event logged:
+     OPTBUY-V1 · options-buy · canceled · "bot-kill:activate — compliance log smoke test"
+3) Cleared kill → second event logged:
+     OPTBUY-V1 · options-buy · evaluated · "bot-kill:clear"
+4) Stats (30d): total=2, byDecision={canceled:1, evaluated:1}, byBot={options-buy:2}
+5) CSV export: 18-column header, rows with exact timestamp + reasoning + reasons list
+```
+
+### Why this matters (Vinit context)
+Before #46: kill events were in KillSwitchEvent, trade setups were in TradeSetup, rejections were silent. Nothing tied them together with an algoId — SEBI requires this for any live algo trading.
+After #46: one query answers "what did algo X do on date Y, and why?". CSV export is SEBI-submission-ready. The feed pre-dates live bots, so when Sprint 4 ships the Scanner/Validator/Executor, the compliance trail is already flowing.
+
+### Sprint 3 progress
+✅ #9 Realism Engine · ✅ #10 Risk Engine · ✅ #11 Kill Switches · ✅ #46 SEBI Compliance
+**Remaining:** #5 Scanner · #6 Validator · #7 Executor
+
+### Next
+Sprint 3 Scanner/Validator/Executor trio. Recommend **#6 Validator** first (it wraps the existing evaluateTrade + compliance write) since it has zero external dependencies and unlocks the Scanner to actually post candidates.
+
+---
+
 ## 2026-04-17 (late night, Sprint 3 continuing²) — Sprint 3 #11 Kill Switch Board shipped
 
 One surface for every trading halt state + a panic button. Aggregates Sprint 1 auto-trips (#15, #16) + Sprint 3 #10 drawdown lockout + NEW per-bot manual kills. Every activation/clearance logged for the future SEBI Compliance Log (#46).

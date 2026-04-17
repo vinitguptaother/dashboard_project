@@ -212,6 +212,7 @@ app.use('/api/large-deals', require('./routes/largeDeals'));
 app.use('/api/paper-realism', require('./routes/paperRealism'));
 app.use('/api/risk-engine', require('./routes/riskEngine'));
 app.use('/api/kill-switches', require('./routes/killSwitches'));
+app.use('/api/compliance', require('./routes/compliance'));
 
 // Error handling middleware
 app.use(errorHandler);
@@ -273,6 +274,14 @@ function startScheduledTasks() {
   cadenceService.seedCadenceTasks()
     .then(n => console.log(`📋 Cadence Registry: ${n} tasks seeded/verified`))
     .catch(e => console.error('❌ Cadence seed error:', e.message));
+
+  // ── Seed SEBI Algo Registry (idempotent) — BOT_BLUEPRINT #46 ──────────────
+  try {
+    const complianceService = require('./services/complianceService');
+    complianceService.seedAlgoRegistry()
+      .then(n => console.log(`🧾 Algo Registry: ${n} algos seeded/verified (SEBI compliance #46)`))
+      .catch(e => console.error('❌ Algo Registry seed error:', e.message));
+  } catch (e) { /* first-boot tolerance */ }
 
   // ── Holiday list refresh on startup + daily at 6 AM IST (00:30 UTC) ────────
   holidayService.refreshHolidays().then(r => {
@@ -659,6 +668,24 @@ function startScheduledTasks() {
             message: `${setup.action} ${setup.symbol} — ${newStatus === 'TARGET_HIT' ? 'Target' : 'SL'} at ₹${price.toLocaleString('en-IN')}. Entry: ₹${setup.entryPrice.toLocaleString('en-IN')}, Target: ₹${setup.target.toLocaleString('en-IN')}, SL: ₹${setup.stopLoss.toLocaleString('en-IN')}`,
             timestamp: new Date().toISOString(),
           });
+
+          // BOT_BLUEPRINT #46 — SEBI Compliance: log the outcome.
+          try {
+            const compliance = require('./services/complianceService');
+            await compliance.recordEvent({
+              botId: setup.botId || 'manual',
+              tradeSetupId: setup._id,
+              decision: newStatus === 'TARGET_HIT' ? 'target_hit' : 'sl_hit',
+              symbol: setup.symbol,
+              action: setup.action,
+              quantity: setup.quantity || 0,
+              entryPrice: setup.entryPrice,
+              stopLoss: setup.stopLoss,
+              target: setup.target,
+              price: updateFields.exitFillPrice || price,
+              reasoning: `${newStatus === 'TARGET_HIT' ? 'Target' : 'Stop'} crossed at ₹${price}. Net ₹${updateFields.netPnL || 0}, charges ₹${updateFields.totalCharges || 0}.`,
+            });
+          } catch (e) { /* logged inside service */ }
         }
       }
 

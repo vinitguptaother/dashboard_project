@@ -39,7 +39,19 @@ async function getSettings() {
 
 async function recordEvent({ kind, action, botId = 'all', trigger = 'manual', reason = '', metadata = null }) {
   try {
-    return await KillSwitchEvent.create({ kind, action, botId, trigger, reason, metadata });
+    const ev = await KillSwitchEvent.create({ kind, action, botId, trigger, reason, metadata });
+    // BOT_BLUEPRINT #46 — mirror kill events to the SEBI Compliance Log.
+    // Activation of any kill = effectively a 'canceled' signal for affected bot(s).
+    try {
+      const compliance = require('./complianceService');
+      await compliance.recordEvent({
+        botId: botId === 'all' ? 'manual' : botId,
+        decision: action === 'activate' ? 'canceled' : 'evaluated',
+        reasoning: `${kind}:${action}${reason ? ' — ' + reason : ''}`,
+        reasons: [kind, action, `trigger=${trigger}`],
+      });
+    } catch (e) { /* logged inside */ }
+    return ev;
   } catch (err) {
     console.warn('[kill-switch] event log failed:', err.message);
     return null;
