@@ -95,3 +95,57 @@ export function getStrikeStep(strikes: { strike: number }[]): number {
   if (strikes.length < 2) return 50;
   return Math.abs(strikes[1].strike - strikes[0].strike);
 }
+
+// ─── Max Pain ─────────────────────────────────────────────────────────────────
+
+export interface MaxPainResult {
+  maxPainStrike: number;        // The strike where aggregated writer pain is minimized
+  totalPain: number;            // Total pain (rupees) option writers face at max pain strike
+  painByStrike: { strike: number; pain: number }[]; // Full curve for charting
+}
+
+/**
+ * Calculate Max Pain — the strike at which option writers collectively experience
+ * the MINIMUM total loss if the underlying expires there.
+ *
+ * Rationale: market makers (who write options) have incentive to "pin" the underlying
+ * near max pain on expiry. Historically, NIFTY / BANKNIFTY often close near this level.
+ *
+ * Math — for each candidate expiry spot K, total writer pain =
+ *   sum over all strikes K':
+ *     CE_OI[K'] × max(0, K - K')        // calls written at K' lose if spot > K'
+ *   + PE_OI[K'] × max(0, K' - K)        // puts  written at K' lose if spot < K'
+ *
+ * Max Pain strike = K with minimum total pain.
+ * Units: pain is in OI-lots × ₹ (before lot-size multiplier). Relative comparisons
+ * across strikes are what matters — absolute value is informational.
+ */
+export function calculateMaxPain(
+  strikes: { strike: number; ce: { oi: number }; pe: { oi: number } }[]
+): MaxPainResult {
+  if (!strikes?.length) {
+    return { maxPainStrike: 0, totalPain: 0, painByStrike: [] };
+  }
+
+  const painByStrike: { strike: number; pain: number }[] = [];
+
+  // Candidate max-pain strike = any strike in the chain
+  for (const candidate of strikes) {
+    const K = candidate.strike;
+    let pain = 0;
+    for (const s of strikes) {
+      if (K > s.strike) pain += (s.ce?.oi || 0) * (K - s.strike);  // CE writers hurt
+      if (K < s.strike) pain += (s.pe?.oi || 0) * (s.strike - K);  // PE writers hurt
+    }
+    painByStrike.push({ strike: K, pain });
+  }
+
+  // Pick the strike with minimum pain
+  let minPain = Infinity;
+  let maxPainStrike = strikes[0].strike;
+  for (const p of painByStrike) {
+    if (p.pain < minPain) { minPain = p.pain; maxPainStrike = p.strike; }
+  }
+
+  return { maxPainStrike, totalPain: minPain, painByStrike };
+}

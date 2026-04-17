@@ -157,6 +157,9 @@ app.get('/api/market-data', (req, res) => {
 app.use('/api/upstox', upstoxAuthRoutes); // Token auth routes (auth-url, exchange-token, token-status)
 app.use('/api/upstox', upstoxRoutes);     // Data routes (ltp, portfolio, etc.)
 app.use('/api/health-check', healthCheckRoutes); // Health checks should not be rate limited
+console.log('[boot] Registering /api/system-health ...');
+app.use('/api/system-health', require('./routes/systemHealth')); // Dashboard status polling — NOT rate limited (UI polls every ~3s when a run is active)
+console.log('[boot] Registered /api/system-health OK');
 
 // Apply rate limiters
 app.use('/api/auth', authLimiter);
@@ -195,6 +198,9 @@ app.use('/api/options', require('./routes/options'));
 app.use('/api/market-status', require('./routes/marketStatus'));
 app.use('/api/notes', require('./routes/notes'));
 app.use('/api/activity', require('./routes/activitySummary'));
+app.use('/api/data-health', require('./routes/dataHealth'));
+app.use('/api/control-center', require('./routes/controlCenter'));
+app.use('/api/trade-replay', require('./routes/tradeReplay'));
 
 // Error handling middleware
 app.use(errorHandler);
@@ -703,6 +709,26 @@ function startScheduledTasks() {
       console.error('❌ Nightly screen scoring error:', error.message);
     }
   });
+
+  // Daily ATM IV snapshot at 3:25 PM IST (Mon-Fri) — captured just before market
+  // close so IVs reflect the full day's trading. Populates OptionsIVHistory
+  // which powers IV Rank / IV Percentile.
+  cron.schedule('25 15 * * 1-5', async () => {
+    try {
+      const { holidays } = holidayService.getHolidays();
+      if (!isMarketOpen(new Date(), holidays)) return; // skip holidays
+      const optionsService = require('./services/optionsService');
+      const underlyings = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'SENSEX', 'MIDCPNIFTY'];
+      console.log('📊 Capturing daily ATM IV snapshots...');
+      const results = await Promise.allSettled(
+        underlyings.map(u => optionsService.captureIVSnapshot(u))
+      );
+      const ok = results.filter(r => r.status === 'fulfilled' && r.value).length;
+      console.log(`📊 IV snapshots: ${ok}/${underlyings.length} captured`);
+    } catch (error) {
+      console.error('❌ Daily IV snapshot error:', error.message);
+    }
+  }, { timezone: 'Asia/Kolkata' });
 }
 
 // ─── Startup: Instruments Check ──────────────────────────────────────────────

@@ -2,7 +2,8 @@
 
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, AlertTriangle, AlertCircle, Info, CheckCircle } from 'lucide-react';
-import { PayoffResult, MarginData, StrategyLeg } from './types';
+import { PayoffResult, MarginData, StrategyLeg, OptionChainData } from './types';
+import { calculateMaxPain } from './utils';
 
 interface Insight {
   type: 'danger' | 'warning' | 'info' | 'success';
@@ -15,6 +16,8 @@ interface Props {
   margin: MarginData | null;
   legs: StrategyLeg[];
   daysToExpiry: number;
+  chain?: OptionChainData | null;
+  spotPrice?: number;
 }
 
 const STYLE_MAP = {
@@ -44,11 +47,42 @@ const STYLE_MAP = {
   },
 };
 
-export default function InsightsPanel({ payoff, margin, legs, daysToExpiry }: Props) {
+export default function InsightsPanel({ payoff, margin, legs, daysToExpiry, chain, spotPrice }: Props) {
   const [expanded, setExpanded] = useState(false);
 
   const insights = useMemo(() => {
     const result: Insight[] = [];
+
+    // Max Pain insight — where is spot vs. the market-maker pin zone?
+    if (chain?.strikes?.length && spotPrice) {
+      const mp = calculateMaxPain(chain.strikes);
+      if (mp.maxPainStrike) {
+        const distPct = ((mp.maxPainStrike - spotPrice) / spotPrice) * 100;
+        const absDistPct = Math.abs(distPct);
+        const sellLegs = legs.filter(l => l.side === 'SELL');
+        const isShortVol = sellLegs.length >= legs.length / 2; // majority sell legs
+
+        if (absDistPct < 0.5) {
+          result.push({
+            type: isShortVol ? 'success' : 'info',
+            title: `Spot near Max Pain (${mp.maxPainStrike.toLocaleString('en-IN')})`,
+            description: `Spot is ${distPct >= 0 ? '+' : ''}${distPct.toFixed(2)}% from Max Pain — market makers have incentive to pin the underlying here on expiry. ${isShortVol ? 'Favorable for this short-vol strategy.' : 'Consolidation likely — less favorable for directional / long-vol strategies.'}`,
+          });
+        } else if (absDistPct > 2) {
+          result.push({
+            type: 'warning',
+            title: `Spot ${distPct > 0 ? 'well below' : 'well above'} Max Pain (${mp.maxPainStrike.toLocaleString('en-IN')})`,
+            description: `Max Pain is ${Math.abs(distPct).toFixed(2)}% ${distPct > 0 ? 'above' : 'below'} spot. Historical pattern suggests drift ${distPct > 0 ? 'upward' : 'downward'} into expiry. ${daysToExpiry <= 3 ? 'DTE is low — pin effect is strongest in the last 2-3 days.' : ''}`,
+          });
+        } else {
+          result.push({
+            type: 'info',
+            title: `Max Pain at ${mp.maxPainStrike.toLocaleString('en-IN')}`,
+            description: `Spot is ${distPct >= 0 ? '+' : ''}${distPct.toFixed(2)}% from Max Pain (option writers' minimum-loss strike). Pin effect is mild at this distance.`,
+          });
+        }
+      }
+    }
 
     // Unlimited loss
     if (payoff.maxLoss === 'Unlimited') {
@@ -133,7 +167,7 @@ export default function InsightsPanel({ payoff, margin, legs, daysToExpiry }: Pr
     }
 
     return result;
-  }, [payoff, margin, legs, daysToExpiry]);
+  }, [payoff, margin, legs, daysToExpiry, chain, spotPrice]);
 
   if (insights.length === 0) return null;
 

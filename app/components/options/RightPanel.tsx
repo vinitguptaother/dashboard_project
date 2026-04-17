@@ -5,10 +5,11 @@ import SummaryBar from './SummaryBar';
 import GreeksPanel from './GreeksPanel';
 import InsightsPanel from './InsightsPanel';
 import PnLTable from './PnLTable';
+import OIDistributionChart from './OIDistributionChart';
 import PayoffChart from '../PayoffChart';
 import { PayoffResult, MarginData, OptionChainData, StrategyLeg, PayoffPoint } from './types';
 
-type RightTab = 'payoff' | 'pnl' | 'greeks';
+type RightTab = 'payoff' | 'pnl' | 'oi' | 'greeks';
 
 interface Props {
   payoff: PayoffResult | null;
@@ -36,6 +37,7 @@ export default function RightPanel({
   const tabs: { id: RightTab; label: string }[] = [
     { id: 'payoff', label: 'Payoff Graph' },
     { id: 'pnl', label: 'P&L Table' },
+    { id: 'oi', label: 'OI Chart' },
     { id: 'greeks', label: 'Greeks' },
   ];
 
@@ -51,6 +53,8 @@ export default function RightPanel({
           margin={margin}
           legs={legs}
           daysToExpiry={daysToExpiry || 0}
+          chain={chain}
+          spotPrice={spotPrice}
         />
       )}
 
@@ -124,6 +128,10 @@ export default function RightPanel({
             spotPrice={spotPrice}
             daysToExpiry={daysToExpiry || 0}
           />
+        )}
+
+        {activeTab === 'oi' && (
+          <OIDistributionChart chain={chain} spotPrice={spotPrice} />
         )}
 
         {activeTab === 'greeks' && (

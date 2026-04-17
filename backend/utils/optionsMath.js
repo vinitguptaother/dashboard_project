@@ -94,23 +94,30 @@ function calculatePayoffAtDate(legs, spotMin, spotMax, steps = 200, daysRemainin
  * @param {Array} legs
  * @param {number} spotPrice — current spot
  * @param {number} daysToExpiry — total DTE
- * @param {number} spotSteps — number of spot price rows (default 15)
+ * @param {number} spotSteps — number of spot price rows (default 15; ignored if customSpots provided)
  * @param {Array} dateSteps — array of days remaining values (e.g. [0, 1, 3, 7, 14, ...])
  * @param {number} riskFreeRate
+ * @param {Array<number>|null} customSpots — optional explicit spot prices. If provided, overrides SD-based computation.
  * @returns {{ spotPrices: number[], daysRemaining: number[], grid: number[][] }}
  */
-function calculatePayoffGrid(legs, spotPrice, daysToExpiry, spotSteps = 15, dateSteps = null, riskFreeRate = 0.07) {
+function calculatePayoffGrid(legs, spotPrice, daysToExpiry, spotSteps = 15, dateSteps = null, riskFreeRate = 0.07, customSpots = null) {
   // Calculate average IV from legs
   const avgIV = legs.reduce((sum, l) => sum + (l.iv || 0.15), 0) / (legs.length || 1);
-  const sd = spotPrice * avgIV * Math.sqrt(daysToExpiry / 365);
 
-  // Spot range: -2SD to +2SD
-  const spotMin = spotPrice - 2 * sd;
-  const spotMax = spotPrice + 2 * sd;
-  const spotStep = (spotMax - spotMin) / (spotSteps - 1);
-  const spotPrices = [];
-  for (let i = 0; i < spotSteps; i++) {
-    spotPrices.push(parseFloat((spotMin + spotStep * i).toFixed(2)));
+  let spotPrices;
+  if (Array.isArray(customSpots) && customSpots.length) {
+    // Caller-supplied spot prices (e.g. ±5%, ±2%, ±1%, 0 for % mode)
+    spotPrices = customSpots.map(s => parseFloat(s.toFixed(2)));
+  } else {
+    // Default: ±2SD from spot
+    const sd = spotPrice * avgIV * Math.sqrt(daysToExpiry / 365);
+    const spotMin = spotPrice - 2 * sd;
+    const spotMax = spotPrice + 2 * sd;
+    const spotStep = (spotMax - spotMin) / (spotSteps - 1);
+    spotPrices = [];
+    for (let i = 0; i < spotSteps; i++) {
+      spotPrices.push(parseFloat((spotMin + spotStep * i).toFixed(2)));
+    }
   }
 
   // Date steps: default spread from DTE to 0
@@ -362,6 +369,110 @@ function calculateNetPremium(legs) {
   };
 }
 
+// ─── IV Rank / IV Percentile ──────────────────────────────────────────────────
+
+/**
+ * Calculate IV Rank and IV Percentile from a history of ATM IV snapshots.
+ *
+ * - IV Rank: where current IV sits within the period's [low, high] range.
+ *   Formula: (current - low) / (high - low) * 100. Range 0-100.
+ *
+ * - IV Percentile: % of historical days where IV was BELOW the current value.
+ *   More statistically meaningful than IV Rank (not skewed by outlier spikes).
+ *   Range 0-100.
+ *
+ * @param {number} currentIV — today's ATM IV (decimal, e.g. 0.15)
+ * @param {Array<{atmIV: number, date: string}>} history — past snapshots
+ * @returns {{
+ *   ivRank: number,
+ *   ivPercentile: number,
+ *   high52w: number,
+ *   low52w: number,
+ *   avgIV: number,
+ *   historyDays: number,
+ *   isSufficient: boolean,
+ * }}
+ */
+function calculateIVMetrics(currentIV, history) {
+  const ivs = (history || [])
+    .map(h => h.atmIV)
+    .filter(v => typeof v === 'number' && v > 0);
+
+  const historyDays = ivs.length;
+  const isSufficient = historyDays >= 30; // minimum for meaningful IVR/IVP
+
+  if (!ivs.length || !currentIV) {
+    return {
+      ivRank: 0,
+      ivPercentile: 0,
+      high52w: 0,
+      low52w: 0,
+      avgIV: 0,
+      historyDays,
+      isSufficient: false,
+    };
+  }
+
+  const high52w = Math.max(...ivs);
+  const low52w = Math.min(...ivs);
+  const avgIV = ivs.reduce((s, v) => s + v, 0) / ivs.length;
+
+  const ivRank = high52w > low52w
+    ? ((currentIV - low52w) / (high52w - low52w)) * 100
+    : 50;
+
+  const belowCount = ivs.filter(v => v < currentIV).length;
+  const ivPercentile = (belowCount / ivs.length) * 100;
+
+  return {
+    ivRank: Math.max(0, Math.min(100, parseFloat(ivRank.toFixed(1)))),
+    ivPercentile: parseFloat(ivPercentile.toFixed(1)),
+    high52w: parseFloat(high52w.toFixed(4)),
+    low52w: parseFloat(low52w.toFixed(4)),
+    avgIV: parseFloat(avgIV.toFixed(4)),
+    historyDays,
+    isSufficient,
+  };
+}
+
+// ─── Max Pain ─────────────────────────────────────────────────────────────────
+
+/**
+ * Calculate Max Pain — the strike at which option writers collectively experience
+ * the MINIMUM total loss if the underlying expires there.
+ *
+ * For each candidate spot K, total writer pain =
+ *   sum over strikes K': CE_OI[K'] × max(0, K - K') + PE_OI[K'] × max(0, K' - K)
+ *
+ * @param {Array} strikes — [{ strike, ce: { oi }, pe: { oi } }]
+ * @returns {{ maxPainStrike, totalPain, painByStrike: [{ strike, pain }] }}
+ */
+function calculateMaxPain(strikes) {
+  if (!strikes?.length) {
+    return { maxPainStrike: 0, totalPain: 0, painByStrike: [] };
+  }
+
+  const painByStrike = [];
+
+  for (const candidate of strikes) {
+    const K = candidate.strike;
+    let pain = 0;
+    for (const s of strikes) {
+      if (K > s.strike) pain += (s.ce?.oi || 0) * (K - s.strike);
+      if (K < s.strike) pain += (s.pe?.oi || 0) * (s.strike - K);
+    }
+    painByStrike.push({ strike: K, pain });
+  }
+
+  let minPain = Infinity;
+  let maxPainStrike = strikes[0].strike;
+  for (const p of painByStrike) {
+    if (p.pain < minPain) { minPain = p.pain; maxPainStrike = p.strike; }
+  }
+
+  return { maxPainStrike, totalPain: minPain, painByStrike };
+}
+
 module.exports = {
   normCDF,
   blackScholesPrice,
@@ -374,4 +485,6 @@ module.exports = {
   aggregateGreeks,
   calculatePOP,
   calculateNetPremium,
+  calculateIVMetrics,
+  calculateMaxPain,
 };

@@ -5,6 +5,7 @@ const optionsService = require('../services/optionsService');
 const optionsMath = require('../utils/optionsMath');
 const OptionsTrade = require('../models/OptionsTrade');
 const RealTrade = require('../models/RealTrade');
+const OptionsIVHistory = require('../models/OptionsIVHistory');
 const trackAPI = require('../utils/trackAPI');
 const logActivity = require('../utils/logActivity');
 
@@ -43,6 +44,70 @@ router.get('/chain/:underlying', async (req, res) => {
       status: 'error',
       message: error.response?.data?.message || error.message || 'Failed to fetch option chain',
     });
+  }
+});
+
+// GET /api/options/iv-metrics/:underlying?spotPrice=24150
+// Returns IV Rank, IV Percentile, 52w high/low, avg, and history size.
+// Also captures today's snapshot if missing (idempotent via upsert on date).
+router.get('/iv-metrics/:underlying', async (req, res) => {
+  try {
+    const underlying = (req.params.underlying || '').toUpperCase();
+    const spotPrice = parseFloat(req.query.spotPrice) || null;
+
+    // Capture today's snapshot if not already present for today (IST date)
+    const istDate = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const todaySnap = await OptionsIVHistory.findOne({ underlying, date: istDate }).lean();
+
+    let currentSnapshot = todaySnap;
+    if (!todaySnap) {
+      currentSnapshot = await optionsService.captureIVSnapshot(underlying, spotPrice);
+    }
+
+    const currentIV = currentSnapshot?.atmIV || 0;
+
+    // Pull up to 252 trading days of history (~1 year)
+    const history = await OptionsIVHistory
+      .find({ underlying })
+      .sort({ date: -1 })
+      .limit(252)
+      .lean();
+
+    const metrics = optionsMath.calculateIVMetrics(currentIV, history);
+
+    res.json({
+      status: 'success',
+      data: {
+        underlying,
+        currentIV,
+        atmStrike: currentSnapshot?.atmStrike || 0,
+        date: currentSnapshot?.date || istDate,
+        ...metrics,
+      },
+    });
+  } catch (error) {
+    console.error('IV metrics error:', error.message);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to compute IV metrics',
+    });
+  }
+});
+
+// POST /api/options/iv-snapshot/:underlying
+// Manually trigger an IV snapshot capture (useful for backfill/testing).
+router.post('/iv-snapshot/:underlying', async (req, res) => {
+  try {
+    const underlying = (req.params.underlying || '').toUpperCase();
+    const spotPrice = parseFloat(req.body?.spotPrice) || null;
+    const doc = await optionsService.captureIVSnapshot(underlying, spotPrice);
+    if (!doc) {
+      return res.status(400).json({ status: 'error', message: 'Snapshot capture failed — check logs' });
+    }
+    res.json({ status: 'success', data: doc });
+  } catch (error) {
+    console.error('IV snapshot error:', error.message);
+    res.status(500).json({ status: 'error', message: error.message });
   }
 });
 
@@ -146,17 +211,18 @@ router.post('/payoff-at-date', (req, res) => {
 });
 
 // POST /api/options/payoff-grid
-// Calculate 2D P&L grid (spot × date) for the P&L table
+// Calculate 2D P&L grid (spot × date) for the P&L table.
+// Accepts optional `customSpots` array (e.g. for % mode: spot * [0.95, 0.98, 0.99, 1, 1.01, 1.02, 1.05])
 router.post('/payoff-grid', (req, res) => {
   try {
-    const { legs, spotPrice, daysToExpiry, spotSteps, dateSteps } = req.body;
+    const { legs, spotPrice, daysToExpiry, spotSteps, dateSteps, customSpots } = req.body;
 
     if (!legs || !legs.length || !spotPrice) {
       return res.status(400).json({ status: 'error', message: 'legs[], spotPrice required' });
     }
 
     const grid = optionsMath.calculatePayoffGrid(
-      legs, spotPrice, daysToExpiry || 1, spotSteps || 15, dateSteps || null, 0.07
+      legs, spotPrice, daysToExpiry || 1, spotSteps || 15, dateSteps || null, 0.07, customSpots || null
     );
 
     res.json({ status: 'success', data: grid });

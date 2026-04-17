@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "timeout": 5,
+            "statusMessage": "Checking if project_logs need updating...",
+            "command": "if [ -n \"$(git status --porcelain 2>/dev/null)\" ]; then echo '{\"systemMessage\":\"Log reminder: update project_logs/ if this session shipped changes.\",\"hookSpecificOutput\":{\"hookEventName\":\"Stop\",\"additionalContext\":\"REMINDER: git status shows modifications. Before ending, update project_logs/CHANGELOG.md (append dated entry at top), project_logs/STATE.md (bump date + changed sections), project_logs/ROADMAP.md (if plans changed). See CLAUDE.md end-of-session rule.\"}}'; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

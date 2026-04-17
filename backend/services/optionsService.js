@@ -225,6 +225,111 @@ class OptionsService {
       throw error;
     }
   }
+
+  /**
+   * Find the ATM strike (closest to spot) in a chain.
+   * Normalizes IV to decimal form (0.15 = 15%) regardless of whether Upstox
+   * returned decimal or percentage. Any value > 1 is treated as percentage.
+   * Returns { atmStrike, ceIV, peIV, atmIV, spot } with all IVs as decimals.
+   */
+  _extractATMIV(chain, spot) {
+    if (!chain?.strikes?.length) return null;
+    // If spot is missing, use the midpoint of the strike range
+    const referenceSpot = spot || chain.strikes[Math.floor(chain.strikes.length / 2)].strike;
+    const atm = chain.strikes.reduce((best, s) =>
+      Math.abs(s.strike - referenceSpot) < Math.abs(best.strike - referenceSpot) ? s : best,
+      chain.strikes[0]
+    );
+    // Normalize: Upstox option-chain returns IV as percentage (e.g. 16.54).
+    // Convert to decimal (0.1654) so math (BS pricing, SD moves) works correctly.
+    const toDecimal = (v) => {
+      const n = v || 0;
+      return n > 1 ? n / 100 : n;
+    };
+    const ceIV = toDecimal(atm.ce?.iv);
+    const peIV = toDecimal(atm.pe?.iv);
+    const count = (ceIV > 0 ? 1 : 0) + (peIV > 0 ? 1 : 0);
+    const atmIV = count > 0 ? (ceIV + peIV) / count : 0;
+    return { atmStrike: atm.strike, ceIV, peIV, atmIV, spot: referenceSpot };
+  }
+
+  /**
+   * Capture today's ATM IV snapshot for a single underlying and persist to MongoDB.
+   * Idempotent — uses upsert on (underlying, date) to avoid duplicates if called twice.
+   * Returns the persisted document or null on failure.
+   */
+  async captureIVSnapshot(underlying, spotPrice = null) {
+    try {
+      const expiries = await this.getExpiries(underlying);
+      if (!expiries?.expiries?.length) {
+        apiLogger.warn('OptionsService', 'captureIVSnapshot', { underlying, reason: 'no expiries' });
+        return null;
+      }
+      const nearestExpiry = expiries.expiries[0];
+      const chain = await this.getOptionChain(underlying, nearestExpiry);
+
+      // Resolve spot price: prefer caller-provided, else fetch from marketDataService,
+      // else fall back to put-call parity scan over liquid strikes only.
+      let spot = spotPrice;
+      if (!spot) {
+        try {
+          const marketDataService = require('./marketDataService');
+          const md = await marketDataService.getMarketData(underlying);
+          spot = md?.price || md?.ltp || null;
+        } catch (e) {
+          apiLogger.warn('OptionsService', 'captureIVSnapshot', { underlying, note: 'marketDataService lookup failed', error: e.message });
+        }
+      }
+      if (!spot) {
+        // Scan only liquid strikes (both CE and PE LTP > 0) and pick the one closest
+        // to put-call parity. Prevents illiquid strikes with LTP=0 from being chosen.
+        const liquid = chain.strikes.filter(s => (s.ce?.ltp || 0) > 0 && (s.pe?.ltp || 0) > 0);
+        if (liquid.length) {
+          const best = liquid.reduce((b, s) => {
+            const diff = Math.abs(s.ce.ltp - s.pe.ltp);
+            return diff < b.diff ? { diff, strike: s.strike } : b;
+          }, { diff: Infinity, strike: liquid[0].strike });
+          spot = best.strike;
+        } else {
+          // Last resort: median strike
+          spot = chain.strikes[Math.floor(chain.strikes.length / 2)].strike;
+        }
+      }
+
+      const atm = this._extractATMIV(chain, spot);
+      if (!atm || atm.atmIV <= 0) {
+        apiLogger.warn('OptionsService', 'captureIVSnapshot', { underlying, reason: 'ATM IV is zero', atm });
+        return null;
+      }
+
+      // IST-anchored date string (YYYY-MM-DD)
+      const istDate = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+      const OptionsIVHistory = require('../models/OptionsIVHistory');
+      const doc = await OptionsIVHistory.findOneAndUpdate(
+        { underlying: underlying.toUpperCase(), date: istDate },
+        {
+          underlying: underlying.toUpperCase(),
+          date: istDate,
+          atmIV: atm.atmIV,
+          ceIV: atm.ceIV,
+          peIV: atm.peIV,
+          spot: atm.spot,
+          atmStrike: atm.atmStrike,
+          expiry: nearestExpiry,
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+
+      apiLogger.info('OptionsService', 'captureIVSnapshot', {
+        underlying, date: istDate, atmIV: atm.atmIV.toFixed(4), atmStrike: atm.atmStrike,
+      });
+      return doc;
+    } catch (error) {
+      apiLogger.error('OptionsService', 'captureIVSnapshot', error, { underlying });
+      return null;
+    }
+  }
 }
 
 module.exports = new OptionsService();

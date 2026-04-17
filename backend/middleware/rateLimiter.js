@@ -1,9 +1,18 @@
 const rateLimit = require('express-rate-limit');
 
+// Bypass rate-limiting entirely for loopback (single-user dashboard on localhost).
+// Real abuse vector is remote access, which this app doesn't accept today — if we
+// ever expose it publicly, this still protects non-loopback clients at 500/15m.
+const isLoopback = (req) => {
+  const ip = req.ip || req.socket?.remoteAddress || '';
+  return ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1';
+};
+
 // General API rate limiter
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: 500, // bumped from 100 — dashboard UIs poll frequently; 100 exhausted in ~4 page loads
+  skip: isLoopback, // no limit for localhost — this is a personal dashboard
   message: {
     status: 'error',
     message: 'Too many requests from this IP, please try again later.',

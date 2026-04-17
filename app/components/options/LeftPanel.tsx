@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import StrategyHeader from './StrategyHeader';
+import IVMetricsBar from './IVMetricsBar';
 import LegsTable from './LegsTable';
 import StrategyControls from './StrategyControls';
 import ActionBar from './ActionBar';
@@ -74,6 +75,8 @@ export default function LeftPanel(props: Props) {
         onRefresh={props.onRefresh}
         lastRefresh={props.lastRefresh}
       />
+
+      <IVMetricsBar underlying={props.underlying} spotPrice={props.spotPrice} />
 
       <div className="flex-shrink-0">
         <LegsTable

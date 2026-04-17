@@ -1,5 +1,30 @@
 # Project Memory — Vinit's AI Stock Trading Dashboard
 
+## 📂 FIRST STEP EVERY SESSION
+Before writing any code, read:
+1. `project_logs/STATE.md` — where we are + next 3 steps + file inventory
+2. `project_logs/ROADMAP.md` — what's planned next and why
+3. `project_logs/BLUEPRINT.md` — vision, stack, principles (if unfamiliar)
+4. `project_logs/CHANGELOG.md` — only if you need recent history or lessons
+
+## 📝 END OF SESSION — Log maintenance (NON-NEGOTIABLE)
+If this session produced **meaningful changes** (feature shipped, bug fixed, plan discussed/agreed, architecture decision made), before ending the turn:
+
+1. **`project_logs/CHANGELOG.md`** — append a dated entry at the top. Format: `## YYYY-MM-DD — Session title` then sub-sections `### Added / Changed / Fixed / Verified / Plans made / Lessons learned`. Match today's date. One session = one entry, even if it spanned multiple tasks. Be specific: list files, endpoints, design decisions.
+
+2. **`project_logs/STATE.md`** — update any sections that changed:
+   - "What's Working" — tick off completed items, update cron count / endpoint count / tab count
+   - "Currently Building" — update the gap/status table
+   - "Next 3 Immediate Actions" — reorder to reflect the new front of the queue
+   - "File Inventory" — add new models / components / services / routes
+   - Bump the "Updated:" date at the top
+
+3. **`project_logs/ROADMAP.md`** — if Vinit and Claude discussed a new feature, enhancement, or shift in priorities, land it here **before** ending the session. Never rely on chat memory for plans. Use the existing sections (Active Sprint / Next Sprint / Short-term / Long-term / Ideas captured / Retired).
+
+Skip the log update only for trivial sessions (pure Q&A, read-only exploration, no code touched). When in doubt, log it. A 2-line entry beats amnesia next session.
+
+**Location reminder:** these files are at `project_logs/` (project root), NOT `docs/`. The `docs/LIVING_BLUEPRINT.md` is auto-generated from code scans and is separate — do not edit it.
+
 ## CRITICAL FACTS — DO NOT GET THESE WRONG
 
 ### Database
@@ -25,7 +50,7 @@
 
 ### Frontend
 - Next.js on port 3000
-- 11 visible tabs: Dashboard, History, Portfolio, Alerts, AI Analysis, Search, News, Screens, Journal, Paper Trading, Settings
+- 12 visible tabs: Dashboard, History, Portfolio, Alerts, AI Analysis, Search, News, Screens, Journal, Paper Trading, Options, Settings
 - 2 hidden tabs: API Integration, Upstox
 
 ### Tech Stack
