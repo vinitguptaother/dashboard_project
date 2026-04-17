@@ -14,6 +14,62 @@ Format:
 
 ---
 
+## 2026-04-17 (late night, continuing⁹) — Sprint 2 #29 Large Deals / Smart Money shipped — **SPRINT 2 COMPLETE 5/5** 🎉
+
+Last Sprint 2 item. Pulls NSE bulk deals + block deals + short deals from a single snapshot endpoint. Shows which institutions are taking big positions.
+
+### Added — Backend
+- `backend/models/LargeDeal.js` — unified schema (bulk / block / short). Unique key `(date, symbol, kind, client, buySell, qty)`. Auto-computes `valueCr = qty × watp / 1e7`.
+- `backend/services/largeDealsService.js`:
+  - Single NSE call: `/api/snapshot-capital-market-largedeal` → returns BULK_DEALS_DATA + BLOCK_DEALS_DATA + SHORT_DEALS_DATA in one go.
+  - Cookie flow via `/market-data/large-deals` referrer.
+  - `refreshAll()` upserts all three arrays.
+  - `getRecent({ days, kind, symbol, minValueCr })` — filtered query.
+  - `getBySymbol(symbol)` — pre-trade smart-money check.
+- `backend/routes/largeDeals.js` — GET /recent, /by-symbol/:symbol, POST /refresh.
+- `backend/server.js`:
+  - Mounted `/api/large-deals`.
+  - NEW cron `0 18 * * 1-5` Asia/Kolkata — daily 6 PM IST (after EOD publication). Skips holidays. Reports to Cadence.
+
+### Added — Cadence Registry
+- `large-deals` daily task (graceMinutes 180, marketDaysOnly).
+
+### Added — Frontend
+- `app/components/LargeDealsWidget.tsx`:
+  - Three toggles: days window (1d/3d/7d), kind (all/bulk/block/short), min value (all/≥₹1cr/≥₹5cr/≥₹10cr).
+  - "Top symbols by net flow" strip — aggregates BUY − SELL per symbol over the window; green/red chips with net ₹ value.
+  - Full deal table: date · kind badge · symbol · client · BUY/SELL · qty · WATP · total value. Caps at top 60 rows.
+  - Poll every 10 min + manual refresh.
+- `app/components/Dashboard.tsx` — mounted as Section B7 after Corp Events.
+- `app/components/helpContent.ts` — new lesson with 5 trading tips on reading bulk vs block, short-squeeze candidates, FII+bulk alignment.
+
+### Verified (live NSE EOD, 17-Apr-2026)
+```
+fetched=205 (bulk=85, block=2, short=118), upserted=205
+count: 56 deals ≥₹5cr in last 7d
+
+Top (17-Apr-2026):
+  bulk | ANGELONE |  ₹222cr | GRAVITON RESEARCH CAPITAL LLP (BUY+SELL paired — prop intraday)
+  bulk | SCI      |  ₹120cr | MICROCURVES TRADING (BUY+SELL paired)
+  bulk | SCI      |  ₹104cr | JUNOMONETA FINSOL
+  bulk | SCI      |   ₹99cr | NK SECURITIES RESEARCH
+  bulk | SCI      |   ₹77cr | QE SECURITIES LLP
+```
+
+### 🎯 Sprint 2 RETROSPECTIVE — **5 of 5 shipped in one day**
+- ✅ #26 FII/DII daily flows (NSE cookie flow)
+- ✅ #27 Corporate Events Calendar (actions + earnings unified)
+- ✅ #28 Sector Rotation Heatmap (12 indices vs NIFTY)
+- ✅ #29 Large Deals / Smart Money (bulk + block + short)
+- ✅ #30 Market Regime Engine (5-state classifier)
+
+All 5 feeds now live on Dashboard. Cadence Registry: 22 tasks (up from 18 at Sprint 2 start). Dashboard now reflects the full "Indian market signals" stack that Sprint 3+ bot Validator will gate strategies on.
+
+### Next — Sprint 3
+Bot infrastructure: Scanner, Validator, Executor, Realistic Paper Engine, Risk Engine, Kill Switches, SEBI Compliance Log. Biggest jump in the blueprint.
+
+---
+
 ## 2026-04-17 (late night, continuing⁸) — Sprint 2 #27 Corporate Events Calendar shipped
 
 Unified NSE corporate actions (dividends, splits, bonuses, buybacks) AND board meetings (quarterly earnings) in one calendar feed. Critical for avoiding earnings-gap surprises on open positions.

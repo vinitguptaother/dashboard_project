@@ -9,6 +9,7 @@ import FiiDiiWidget from './FiiDiiWidget';
 import MarketRegimeWidget from './MarketRegimeWidget';
 import SectorRotationHeatmap from './SectorRotationHeatmap';
 import CorporateEventsWidget from './CorporateEventsWidget';
+import LargeDealsWidget from './LargeDealsWidget';
 
 const BACKEND_URL = 'http://localhost:5002';
 
@@ -383,6 +384,9 @@ const Dashboard = () => {
 
       {/* Section B6: Corporate Events Calendar (Sprint 2 #27) — dividends, splits, earnings */}
       <CorporateEventsWidget />
+
+      {/* Section B7: Large Deals / Smart Money (Sprint 2 #29) — bulk, block, short */}
+      <LargeDealsWidget />
 
       {/* Section C: Active Trade Setups Tracker */}
       {activeSetups.length > 0 && (

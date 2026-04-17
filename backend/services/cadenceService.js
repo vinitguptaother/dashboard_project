@@ -133,6 +133,13 @@ const SEED_TASKS = [
     type: 'system', cadence: 'daily', schedule: '0 7 * * *',
     graceMinutes: 360, category: 'market-data',
   },
+  {
+    taskKey: 'large-deals',
+    name: 'Bulk / Block / Short deals daily fetch (6 PM IST)',
+    description: 'Pulls NSE EOD large deals (bulk ≥0.5% equity, block ≥₹10cr, short aggregates). Smart-money signal — who took big positions.',
+    type: 'system', cadence: 'daily', schedule: '0 18 * * 1-5',
+    graceMinutes: 180, category: 'market-data', marketDaysOnly: true,
+  },
 
   // ── User activities (no automation; user is expected to perform them)
   {

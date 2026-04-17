@@ -208,6 +208,7 @@ app.use('/api/fii-dii', require('./routes/fiiDii'));
 app.use('/api/regime', require('./routes/regime'));
 app.use('/api/sector-rotation', require('./routes/sectorRotation'));
 app.use('/api/corporate-actions', require('./routes/corporateActions'));
+app.use('/api/large-deals', require('./routes/largeDeals'));
 
 // Error handling middleware
 app.use(errorHandler);
@@ -823,6 +824,22 @@ function startScheduledTasks() {
     } catch (error) {
       console.error('❌ Corp Actions error:', error.message);
       cadenceService.reportRun('corporate-actions', 'failure', error.message).catch(() => {});
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+  // Bulk / Block / Short Deals — daily 6 PM IST (after EOD publication).
+  // "Who took big positions today?" — key Indian smart-money signal.
+  cron.schedule('0 18 * * 1-5', async () => {
+    try {
+      const { holidays } = holidayService.getHolidays();
+      if (!isMarketOpen(new Date(new Date().setHours(12, 0, 0, 0)), holidays)) return;
+      const dealSvc = require('./services/largeDealsService');
+      const result = await dealSvc.refreshAll();
+      console.log(`🐋 Large Deals (${result.asOn}): bulk=${result.bulk} block=${result.block} short=${result.short} · upserted=${result.upserted}`);
+      cadenceService.reportRun('large-deals', 'success', `${result.bulk}b/${result.block}B/${result.short}s`).catch(() => {});
+    } catch (error) {
+      console.error('❌ Large Deals error:', error.message);
+      cadenceService.reportRun('large-deals', 'failure', error.message).catch(() => {});
     }
   }, { timezone: 'Asia/Kolkata' });
 

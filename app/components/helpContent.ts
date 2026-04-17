@@ -304,6 +304,24 @@ export const HELP_CONTENT: HelpSection[] = [
         ],
       },
       {
+        title: 'Large Deals / Smart Money (Dashboard widget)',
+        summary: 'Shows NSE bulk deals (single-client ≥0.5% of equity capital), block deals (single trade ≥₹10cr), and short-deal aggregates.',
+        steps: [
+          'Source: NSE /api/snapshot-capital-market-largedeal (EOD snapshot, published ~6 PM IST after market close).',
+          'Three views: All / Bulk / Block / Short. Three date windows: 1d / 3d / 7d. Four min-value filters: all / ≥₹1cr / ≥₹5cr / ≥₹10cr.',
+          'Top symbols by NET flow: aggregates BUY − SELL value per symbol. Green = net buying · Red = net selling.',
+          'Deal table: date · kind · symbol · client · BUY/SELL · qty · WATP (weighted avg traded price) · total value.',
+          'Refresh: daily 6 PM IST (Mon-Fri only). Manual refresh pulls live.',
+        ],
+        tips: [
+          'Bulk deals reveal institutional conviction — same client buying a stock across many days is a strong signal.',
+          'Block deals are fast-executed at VWAP in window slots (8:45-9:00 + 2:05-2:20). Often FII/DII unwinds.',
+          'A stock appearing in BOTH bulk AND block on the same day with BUY = very strong institutional accumulation.',
+          'SHORT deal spikes in a stock = potential upcoming volatility; short-squeeze candidates live here.',
+          'Cross-reference: if FII net is POSITIVE on the day AND a stock shows large BUY deals = aligned macro + micro signal.',
+        ],
+      },
+      {
         title: 'Corporate Events Calendar (Dashboard widget)',
         summary: 'Shows next-30-day calendar of NSE corporate actions (dividends, splits, bonuses, buybacks) + upcoming board meetings (quarterly earnings).',
         steps: [
