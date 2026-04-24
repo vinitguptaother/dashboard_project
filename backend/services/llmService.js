@@ -248,10 +248,118 @@ async function openaiEmbed(/* { text, model } */) {
   );
 }
 
+// ─── whisperTranscribe (voice → text) ───────────────────────────────────────
+/**
+ * Phase 6 deliverable #4 — voice journal.
+ *
+ * Transcribes audio via OpenAI Whisper. Uses multipart/form-data directly
+ * so we don't have to pull in the OpenAI SDK for one call.
+ *
+ * Falls back gracefully if OPENAI_API_KEY is missing — the caller
+ * (journalVoice route) handles the stub path on throw.
+ *
+ * @param {Object} opts
+ * @param {Buffer} opts.audioBuffer
+ * @param {string} [opts.filename='audio.webm']
+ * @param {string} [opts.mimeType='audio/webm']
+ * @param {string} [opts.model='whisper-1']
+ * @returns {Promise<{ text: string, provider: string }>}
+ */
+async function whisperTranscribe({
+  audioBuffer,
+  filename = 'audio.webm',
+  mimeType = 'audio/webm',
+  model = 'whisper-1',
+}) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey || apiKey === 'your_openai_api_key' || apiKey.trim() === '') {
+    throw new Error('OPENAI_API_KEY missing — cannot transcribe');
+  }
+  if (!Buffer.isBuffer(audioBuffer) || audioBuffer.length === 0) {
+    throw new Error('whisperTranscribe: empty audioBuffer');
+  }
+
+  // Build multipart body manually — Node 18+ has global FormData + File/Blob
+  const hasGlobalFormData = typeof FormData !== 'undefined' && typeof Blob !== 'undefined';
+  const startedAt = Date.now();
+
+  try {
+    let resp;
+    if (hasGlobalFormData) {
+      const form = new FormData();
+      form.append('file', new Blob([audioBuffer], { type: mimeType }), filename);
+      form.append('model', model);
+      form.append('response_format', 'json');
+      resp = await axios.post(
+        'https://api.openai.com/v1/audio/transcriptions',
+        form,
+        {
+          headers: { 'Authorization': `Bearer ${apiKey}` },
+          timeout: 60000,
+          maxContentLength: 50 * 1024 * 1024,
+        }
+      );
+    } else {
+      // Fallback manual multipart (very small projects only)
+      const boundary = '----LLMBound' + Date.now().toString(16);
+      const head =
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="model"\r\n\r\n${model}\r\n` +
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="response_format"\r\n\r\njson\r\n` +
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
+        `Content-Type: ${mimeType}\r\n\r\n`;
+      const tail = `\r\n--${boundary}--\r\n`;
+      const body = Buffer.concat([Buffer.from(head, 'utf8'), audioBuffer, Buffer.from(tail, 'utf8')]);
+      resp = await axios.post(
+        'https://api.openai.com/v1/audio/transcriptions',
+        body,
+        {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+            'Content-Length': body.length,
+          },
+          timeout: 60000,
+          maxContentLength: 50 * 1024 * 1024,
+        }
+      );
+    }
+
+    const text = resp.data?.text || '';
+
+    // Whisper bills per second (~$0.006/min). We don't know duration here, so
+    // estimate from buffer size (rough: 16kbps = 128Kb/s ≈ 16KB/s).
+    const approxSec = Math.max(1, Math.round(audioBuffer.length / 16000));
+    const costUSD = +(approxSec * 0.0001).toFixed(6);
+
+    await logUsage({
+      provider: 'openai', model: `whisper/${model}`, operation: 'transcribe',
+      tokensIn: 0, tokensOut: 0, costUSD, success: true,
+    });
+
+    return {
+      text,
+      provider: 'openai-whisper',
+      durationMs: Date.now() - startedAt,
+    };
+  } catch (err) {
+    const errMsg = err.response?.data?.error?.message || err.message || 'unknown';
+    await logUsage({
+      provider: 'openai', model: `whisper/${model}`, operation: 'transcribe',
+      tokensIn: 0, tokensOut: 0, costUSD: 0, success: false,
+      errorMessage: errMsg.slice(0, 500),
+    });
+    throw new Error(`Whisper error: ${errMsg}`);
+  }
+}
+
 module.exports = {
   claudeChat,
   perplexityAsk,
   openaiEmbed,
+  whisperTranscribe,
   estimateCost,       // exported for tests + debug
   _logUsage: logUsage,
 };

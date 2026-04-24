@@ -19,6 +19,8 @@ import {
   WifiOff,
 } from 'lucide-react';
 import PositionSizer from './PositionSizer';
+import TradeReplayModal from './TradeReplayModal';
+import VoiceJournal from './VoiceJournal';
 
 const BACKEND_URL = 'http://localhost:5002';
 
@@ -80,6 +82,7 @@ const TradeJournalTab = () => {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [replayId, setReplayId] = useState<string | null>(null);
   const [monitorHealth, setMonitorHealth] = useState<MonitorHealth | null>(null);
   const [showMonitorDetails, setShowMonitorDetails] = useState(false);
 
@@ -220,19 +223,22 @@ const TradeJournalTab = () => {
   return (
     <div className="space-y-6 slide-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900 flex items-center">
-          <Target className="h-7 w-7 mr-2 text-orange-600" />
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h2 className="text-xl sm:text-2xl font-bold text-gray-900 flex items-center">
+          <Target className="h-6 w-6 sm:h-7 sm:w-7 mr-2 text-orange-600" />
           Trade Journal
         </h2>
         <button
           onClick={fetchData}
-          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm min-h-[44px]"
         >
           <RefreshCw className="h-4 w-4" />
           <span>Refresh</span>
         </button>
       </div>
+
+      {/* Phase 6: Voice Journal — quick standalone entry */}
+      <VoiceJournal />
 
       {/* Stats Summary */}
       {stats && (
@@ -586,37 +592,49 @@ const TradeJournalTab = () => {
                                   <br />
                                   Created: {new Date(setup.createdAt).toLocaleString('en-IN')}
                                 </p>
-                                {setup.status === 'ACTIVE' && (
-                                  <div className="mt-3 flex gap-2">
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleStatusChange(setup._id, 'TARGET_HIT');
-                                      }}
-                                      className="px-3 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700"
-                                    >
-                                      Mark Target Hit
-                                    </button>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleStatusChange(setup._id, 'SL_HIT');
-                                      }}
-                                      className="px-3 py-1 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700"
-                                    >
-                                      Mark SL Hit
-                                    </button>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleStatusChange(setup._id, 'CANCELLED');
-                                      }}
-                                      className="px-3 py-1 text-xs bg-gray-500 text-white rounded-lg hover:bg-gray-600"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                )}
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  {setup.status === 'ACTIVE' && (
+                                    <>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleStatusChange(setup._id, 'TARGET_HIT');
+                                        }}
+                                        className="px-3 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700"
+                                      >
+                                        Mark Target Hit
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleStatusChange(setup._id, 'SL_HIT');
+                                        }}
+                                        className="px-3 py-1 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700"
+                                      >
+                                        Mark SL Hit
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleStatusChange(setup._id, 'CANCELLED');
+                                        }}
+                                        className="px-3 py-1 text-xs bg-gray-500 text-white rounded-lg hover:bg-gray-600"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </>
+                                  )}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setReplayId(setup._id);
+                                    }}
+                                    className="px-3 py-1 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 inline-flex items-center gap-1"
+                                    title="Replay this trade — see price path, market conditions, and what better action would have been"
+                                  >
+                                    <Activity className="w-3 h-3" /> Replay
+                                  </button>
+                                </div>
                               </div>
                             </div>
                             {/* Position sizing for this trade */}
@@ -642,6 +660,10 @@ const TradeJournalTab = () => {
             </table>
           </div>
         </div>
+      )}
+
+      {replayId && (
+        <TradeReplayModal tradeId={replayId} onClose={() => setReplayId(null)} />
       )}
     </div>
   );

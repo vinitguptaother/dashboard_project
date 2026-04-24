@@ -15,7 +15,10 @@
     "validate:smoke": "node scripts/validate.js --smoke-only",
     "backup": "node scripts/backup.js",
     "backup:force": "node scripts/backup.js --force",
-    "backup:blueprint": "node scripts/backup.js --blueprint-only"
+    "backup:blueprint": "node scripts/backup.js --blueprint-only",
+    "backup:guardian": "node scripts/backup-guardian.js",
+    "audit:dead": "node scripts/dead-code-audit.js",
+    "audit:dead:json": "node scripts/dead-code-audit.js --json"
   },
   "dependencies": {
     "@types/node": "20.6.2",

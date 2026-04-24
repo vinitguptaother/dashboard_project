@@ -84,7 +84,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
       <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
-      <main className={`pt-[68px] ${activeTab === 'options' ? '' : 'px-4 pb-8'}`}>
+      <main className={`pt-[68px] ${activeTab === 'options' ? '' : 'px-3 sm:px-4 pb-8'}`}>
         <div className={activeTab === 'options' ? '' : 'max-w-7xl mx-auto'}>
           {renderActiveTab()}
         </div>

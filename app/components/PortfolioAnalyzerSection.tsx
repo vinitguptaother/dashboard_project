@@ -22,7 +22,9 @@ import {
   TrendingUp,
   TrendingDown,
   AlertCircle,
+  Calculator,
 } from 'lucide-react';
+import TaxLotOptimizerModal from './TaxLotOptimizerModal';
 
 const BACKEND_URL = 'http://localhost:5002';
 
@@ -154,6 +156,7 @@ export default function PortfolioAnalyzerSection(
   const [infoBanner, setInfoBanner] = useState('');
   const [modalSymbol, setModalSymbol] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [taxLotTarget, setTaxLotTarget] = useState<{ symbol: string; quantity: number } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -569,19 +572,30 @@ export default function PortfolioAnalyzerSection(
                         )}
                       </td>
                       <td className="px-3 py-2 text-center">
-                        <button
-                          type="button"
-                          onClick={e => { e.stopPropagation(); void analyzeOne(h.symbol); }}
-                          disabled={analyzingSymbol === h.symbol}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-purple-100 hover:bg-purple-200 disabled:opacity-50 text-purple-700 text-[11px] font-semibold transition-colors"
-                        >
-                          {analyzingSymbol === h.symbol ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <Sparkles className="w-3 h-3" />
-                          )}
-                          Analyze
-                        </button>
+                        <div className="flex items-center justify-center gap-1 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={e => { e.stopPropagation(); void analyzeOne(h.symbol); }}
+                            disabled={analyzingSymbol === h.symbol}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-purple-100 hover:bg-purple-200 disabled:opacity-50 text-purple-700 text-[11px] font-semibold transition-colors"
+                          >
+                            {analyzingSymbol === h.symbol ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Sparkles className="w-3 h-3" />
+                            )}
+                            Analyze
+                          </button>
+                          <button
+                            type="button"
+                            onClick={e => { e.stopPropagation(); setTaxLotTarget({ symbol: h.symbol, quantity: h.quantity }); }}
+                            title="Suggest lots to sell (tax-optimized)"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-indigo-100 hover:bg-indigo-200 text-indigo-700 text-[11px] font-semibold transition-colors"
+                          >
+                            <Calculator className="w-3 h-3" />
+                            Tax-Lot
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -730,6 +744,15 @@ export default function PortfolioAnalyzerSection(
             )}
           </div>
         </div>
+      )}
+
+      {/* Tax-Lot Optimizer Modal (Phase 6) */}
+      {taxLotTarget && (
+        <TaxLotOptimizerModal
+          symbol={taxLotTarget.symbol}
+          defaultQuantity={taxLotTarget.quantity}
+          onClose={() => setTaxLotTarget(null)}
+        />
       )}
     </div>
   );

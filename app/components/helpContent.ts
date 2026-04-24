@@ -744,4 +744,112 @@ export const HELP_CONTENT: HelpSection[] = [
       },
     ],
   },
+
+  // ─── Remote access (Phase 6) ──────────────────────────────────────────────
+  {
+    id: 'remote-access',
+    title: 'Remote Access (Phone)',
+    intro: 'Use the dashboard from your phone when you\'re away from home — safely, with Tailscale.',
+    lessons: [
+      {
+        title: 'Install Tailscale (free)',
+        summary: 'Tailscale is a free personal mesh VPN. Installs in 5 minutes on desktop + phone; no router config, no public URL.',
+        steps: [
+          'Sign up at tailscale.com with Google / Microsoft / Apple.',
+          'Install the Tailscale app on your Windows desktop (system tray icon).',
+          'Install the Tailscale app on your phone (App Store / Play Store). Log in with the same account.',
+          'Both devices auto-join your private "tailnet".',
+        ],
+        tips: [
+          'Full step-by-step in docs/TAILSCALE_SETUP.md in the project root.',
+          'Only YOUR devices can reach the dashboard — no public exposure.',
+          'Works on cellular data — no need to be on the same Wi-Fi.',
+        ],
+      },
+      {
+        title: 'Open the dashboard from your phone',
+        summary: 'Once Tailscale is installed on both devices, open http://<desktop-name>:3000 on your phone. Use the desktop name Tailscale shows in its admin console (MagicDNS).',
+        tips: [
+          'Leave the backend + frontend running on desktop (npm run dev + npm run backend:dev).',
+          'Keep Windows awake — Tailscale can\'t wake a sleeping machine.',
+          'Windows Firewall may need to allow Node.js on "Private networks".',
+        ],
+      },
+      {
+        title: 'Install as a PWA (Add to Home Screen)',
+        summary: 'Once loaded on your phone, tap Share → Add to Home Screen (iOS) or Menu → Install App (Android). The dashboard becomes a full-screen app icon.',
+        tips: [
+          'No App Store review — installs instantly from the browser.',
+          'Offline-aware: shows a banner when your phone loses connection.',
+          'Works like a native app: swipes, touch targets, portrait mode.',
+        ],
+      },
+      {
+        title: 'Why not a public URL (ngrok, Cloudflare)?',
+        summary: 'Tailscale is private by default. Public tunnels expose your dashboard + Upstox token to the internet — strangers can probe it.',
+        warnings: [
+          'Do NOT expose localhost:3000 to the public internet without knowing the security implications.',
+          'For a single-user personal dashboard, Tailscale is strictly safer.',
+        ],
+      },
+    ],
+  },
+
+  // ─── Phase 6 features ─────────────────────────────────────────────────────
+  {
+    id: 'phase6-features',
+    title: 'Phase 6 — Mobile & UX polish',
+    intro: 'Mobile-first polish: PWA install, voice journal, tax-lot optimizer, and a "what changed since last login" banner.',
+    lessons: [
+      {
+        title: 'PWA install',
+        summary: 'The dashboard is now installable as a phone app. On Dashboard home, your phone browser will offer "Add to Home Screen" / "Install App".',
+        tips: [
+          'After install, launch from the home screen icon — full-screen, no browser chrome.',
+          'Offline banner appears at top when you lose connection (live prices pause automatically).',
+          'Service worker is minimal — no caching of sensitive data; everything stays live-fetched.',
+        ],
+      },
+      {
+        title: 'Voice Journal',
+        summary: 'Record up to 60 seconds of voice notes per trade. Transcription runs on OpenAI Whisper and attaches to the trade as text.',
+        steps: [
+          'Go to the Journal tab.',
+          'Tap Record → speak your reflection → tap Stop (or wait 60s auto-stop).',
+          'The clip is transcribed and saved. Raw audio is NEVER stored.',
+        ],
+        tips: [
+          'Set OPENAI_API_KEY in backend/.env to enable transcription (~₹4 / 100 min).',
+          'Without the key, a placeholder note is saved so the pipeline still works.',
+        ],
+        warnings: ['Do not include account numbers or sensitive info in voice notes.'],
+      },
+      {
+        title: 'Tax-Lot Optimizer',
+        summary: 'When you\'re about to sell, the optimizer suggests WHICH buy-lots to exit first to minimize STCG / LTCG tax.',
+        steps: [
+          'Portfolio Analyzer → click the Tax-Lot button on any holding.',
+          'Enter quantity to sell → view the suggested lot order.',
+          'Compare "Tax (FIFO)" vs "Tax (Optimal)" — the difference is your savings.',
+        ],
+        tips: [
+          'Profit exit → LTCG lots picked first (10% vs 15% STCG).',
+          'Loss exit → STCG lots first (can offset other STCG gains).',
+          'Advisory only — no orders are placed.',
+        ],
+        warnings: [
+          'LTCG ₹1L/year exemption is NOT applied per-trade; confirm with CA at ITR time.',
+          'F&O is NOT covered (taxed as business income at slab rate).',
+        ],
+      },
+      {
+        title: '"What changed since last login" banner',
+        summary: 'A dismissible banner on Dashboard shows new suggestions, closed trades, regime changes, and agent activity since your last visit.',
+        tips: [
+          'Click Details to expand closed-trade list + regime transitions.',
+          'Dismiss resets the timestamp so next visit\'s banner is fresh.',
+        ],
+      },
+    ],
+  },
 ];

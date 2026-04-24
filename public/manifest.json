@@ -1,0 +1,17 @@
+{
+  "name": "Vinit's AI Stock Dashboard",
+  "short_name": "AI Dashboard",
+  "description": "AI-powered Indian stock trading dashboard — swing trades, paper trading, and 6 research agents.",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#1e40af",
+  "background_color": "#f8fafc",
+  "orientation": "portrait",
+  "scope": "/",
+  "lang": "en-IN",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, Layers, LineChart as LineChartIcon, Target, CheckCircle, XCircle, Clock, ArrowUpRight, ArrowDownRight, Activity, BarChart3, Minus } from 'lucide-react';
 import LiveIndexBar from './LiveIndexBar';
 import TodayTopActionsPreview from './TodayTopActionsPreview';
+import TradeIdeaDiff from './TradeIdeaDiff';
 import PositionSizer from './PositionSizer';
 import DailyPnLWidget from './DailyPnLWidget';
 import FiiDiiWidget from './FiiDiiWidget';
@@ -162,12 +163,15 @@ const Dashboard = () => {
       {/* Live Index Bar - Keep exactly as is */}
       <LiveIndexBar pollMs={5000} />
 
+      {/* Phase 6: "What changed since last login" banner (dismissible) */}
+      <TradeIdeaDiff />
+
       {/* Section A0.5 (Phase 1 Track C): Today's top-3 actions preview — links to Today tab */}
       <TodayTopActionsPreview />
 
       {/* Section A: Today's Top Ideas */}
-      <div className="glass-effect rounded-xl p-6 shadow-lg accent-left">
-        <h3 className="text-sm font-semibold text-gray-900 mb-4 flex items-center">
+      <div className="glass-effect rounded-xl p-4 sm:p-6 shadow-lg accent-left">
+        <h3 className="text-sm font-semibold text-gray-900 mb-4 flex items-center flex-wrap">
           <LineChartIcon className="h-4 w-4 mr-2 text-blue-500" />
           Today&apos;s Top Ideas
           {topIdeasData && (
@@ -176,26 +180,26 @@ const Dashboard = () => {
             </span>
           )}
         </h3>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto -mx-4 sm:mx-0">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   #
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Symbol
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Score
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Price
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   % Change
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">
                   AI Insight
                 </th>
               </tr>
@@ -216,15 +220,15 @@ const Dashboard = () => {
               ) : (
                 topIdeasData.topIdeas.map((idea, idx) => (
                   <tr key={idea.symbol} className="hover:bg-gray-50">
-                    <td className="px-6 py-3 text-sm font-mono-nums text-gray-500">{idx + 1}</td>
-                    <td className="px-6 py-3 text-sm font-semibold text-blue-500">{idea.symbol}</td>
-                    <td className="px-6 py-3">
+                    <td className="px-3 sm:px-6 py-3 text-sm font-mono-nums text-gray-500">{idx + 1}</td>
+                    <td className="px-3 sm:px-6 py-3 text-sm font-semibold text-blue-500">{idea.symbol}</td>
+                    <td className="px-3 sm:px-6 py-3">
                       <span className={`${idea.aiScore != null ? 'badge-success' : 'badge-primary'}`}>
                         {idea.aiScore != null ? `${idea.aiScore}/20` : idea.score.toFixed(2)}
                       </span>
                     </td>
-                    <td className="px-6 py-3 text-sm font-mono-nums text-gray-700">₹{idea.lastPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td className={`px-6 py-3 text-sm font-medium ${
+                    <td className="px-3 sm:px-6 py-3 text-sm font-mono-nums text-gray-700">₹{idea.lastPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td className={`px-3 sm:px-6 py-3 text-sm font-medium ${
                       idea.percentChange != null && idea.percentChange > 0
                         ? 'text-green-600'
                         : idea.percentChange != null && idea.percentChange < 0
@@ -233,7 +237,7 @@ const Dashboard = () => {
                     }`}>
                       {idea.percentChange != null ? `${idea.percentChange > 0 ? '+' : ''}${idea.percentChange.toFixed(2)}%` : '–'}
                     </td>
-                    <td className="px-6 py-3 text-xs text-gray-500 max-w-[200px] truncate" title={idea.aiReason || ''}>
+                    <td className="px-3 sm:px-6 py-3 text-xs text-gray-500 max-w-[200px] truncate hidden sm:table-cell" title={idea.aiReason || ''}>
                       {idea.aiReason || '–'}
                     </td>
                   </tr>
