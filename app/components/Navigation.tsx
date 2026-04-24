@@ -29,7 +29,10 @@ import {
   HeartPulse,
   Wrench,
   BookOpen,
-  FileText
+  FileText,
+  Sparkles,
+  Bot,
+  ChevronDown
 } from 'lucide-react';
 import RealTimeNotification from './RealTimeNotification';
 import MarketStatusBadge from './MarketStatusBadge';
@@ -158,29 +161,45 @@ const Navigation = ({ activeTab, setActiveTab }: NavigationProps) => {
     localStorage.setItem('dashboard-theme', newDark ? 'dark' : 'light');
   };
 
-  const tabs = [
-    { id: 'dashboard', label: 'Dashboard', icon: BarChart3, visible: true },
-    { id: 'historical', label: 'History', icon: LineChart, visible: true },
-    { id: 'portfolio', label: 'Watchlist', icon: Eye, visible: true },
-    { id: 'alerts', label: 'Alerts', icon: Bell, visible: true },
-    { id: 'ai-analysis', label: 'AI Analysis', icon: Brain, visible: true },
-    { id: 'stock-search', label: 'Search', icon: SearchCheck, visible: true },
-    { id: 'news', label: 'News', icon: Newspaper, visible: true },
-    { id: 'screener', label: 'Screens', icon: Search, visible: true },
-    { id: 'trade-journal', label: 'Journal', icon: Target, visible: true },
-    { id: 'paper-trading', label: 'Paper', icon: FlaskConical, visible: true },
-    { id: 'options', label: 'Options', icon: TrendingUp, visible: true },
-    { id: 'upstox', label: 'Upstox', icon: Activity, visible: false },
-    { id: 'api', label: 'API Integration', icon: Zap, visible: false },
-    { id: 'activity', label: 'Activity', icon: ClipboardList, visible: true },
-    { id: 'data-health', label: 'Health', icon: HeartPulse, visible: true },
-    { id: 'control-center', label: 'Control', icon: Wrench, visible: true },
-    { id: 'compliance', label: 'Compliance', icon: FileText, visible: true },
-    { id: 'help', label: 'Help', icon: BookOpen, visible: true },
-    { id: 'settings', label: 'Settings', icon: Settings, visible: true },
+  // Primary tabs — daily use (9 tabs + Help + Settings on right)
+  const primaryTabs = [
+    { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
+    { id: 'today', label: 'Today', icon: Sparkles },
+    { id: 'bots-agents', label: 'Bots & Agents', icon: Bot },
+    { id: 'portfolio', label: 'Portfolio', icon: Eye },
+    { id: 'stock-search', label: 'Search', icon: SearchCheck },
+    { id: 'screener', label: 'Screens', icon: Search },
+    { id: 'paper-trading', label: 'Paper', icon: FlaskConical },
+    { id: 'options', label: 'Options', icon: TrendingUp },
+    { id: 'trade-journal', label: 'Journal', icon: Target },
   ];
 
-  const visibleTabs = tabs.filter(tab => tab.visible);
+  // Admin dropdown — less-frequent use, grouped
+  const adminTabs = [
+    { id: 'historical', label: 'History', icon: LineChart },
+    { id: 'news', label: 'News', icon: Newspaper },
+    { id: 'alerts', label: 'Alerts', icon: Bell },
+    { id: 'ai-analysis', label: 'AI Analysis', icon: Brain },
+    { id: 'activity', label: 'Activity', icon: ClipboardList },
+    { id: 'data-health', label: 'Health', icon: HeartPulse },
+    { id: 'compliance', label: 'Compliance', icon: FileText },
+    { id: 'control-center', label: 'Control Center', icon: Wrench },
+  ];
+
+  // Hidden tabs (reachable by id but not in nav)
+  const hiddenTabs = [
+    { id: 'upstox', label: 'Upstox', icon: Activity },
+    { id: 'api', label: 'API Integration', icon: Zap },
+  ];
+
+  // Right-side always-visible
+  const rightTabs = [
+    { id: 'help', label: 'Help', icon: BookOpen },
+    { id: 'settings', label: 'Settings', icon: Settings },
+  ];
+
+  const [adminOpen, setAdminOpen] = useState(false);
+  const isAdminTabActive = adminTabs.some(t => t.id === activeTab);
 
   return (
     <>
@@ -196,7 +215,67 @@ const Navigation = ({ activeTab, setActiveTab }: NavigationProps) => {
 
         {/* Tab Navigation */}
         <div className="hidden md:flex items-center gap-0.5 overflow-x-auto mx-4 flex-1 scrollbar-hide">
-          {visibleTabs.map((tab) => {
+          {/* Primary tabs */}
+          {primaryTabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium whitespace-nowrap transition-all ${
+                  isActive
+                    ? 'bg-blue-600 text-white shadow-glow'
+                    : 'text-gray-600 hover:bg-blue-50 hover:text-blue-600'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                {tab.label}
+              </button>
+            );
+          })}
+
+          {/* Admin dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setAdminOpen(!adminOpen)}
+              onBlur={() => setTimeout(() => setAdminOpen(false), 150)}
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium whitespace-nowrap transition-all ${
+                isAdminTabActive
+                  ? 'bg-blue-600 text-white shadow-glow'
+                  : 'text-gray-600 hover:bg-blue-50 hover:text-blue-600'
+              }`}
+            >
+              <Wrench className="w-3.5 h-3.5" />
+              Admin
+              <ChevronDown className={`w-3 h-3 transition-transform ${adminOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {adminOpen && (
+              <div className="absolute top-full left-0 mt-1 min-w-[180px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50 py-1">
+                {adminTabs.map((tab) => {
+                  const Icon = tab.icon;
+                  const isActive = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      onMouseDown={(e) => { e.preventDefault(); setActiveTab(tab.id); setAdminOpen(false); }}
+                      className={`w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-left transition-colors ${
+                        isActive
+                          ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 font-semibold'
+                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Right-side tabs (Help + Settings) */}
+          {rightTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
@@ -262,7 +341,61 @@ const Navigation = ({ activeTab, setActiveTab }: NavigationProps) => {
       {mobileOpen && (
         <div className="md:hidden fixed inset-0 top-12 z-40 bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl p-3 overflow-y-auto">
           <div className="flex flex-col gap-1">
-            {visibleTabs.map((tab) => {
+            {/* Primary tabs */}
+            {primaryTabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    setActiveTab(tab.id);
+                    setMobileOpen(false);
+                  }}
+                  className={`flex items-center gap-2 px-3 py-2.5 rounded-md text-sm font-medium transition-all w-full text-left ${
+                    isActive
+                      ? 'bg-blue-600 text-white shadow-glow'
+                      : 'text-gray-600 hover:bg-blue-50'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {tab.label}
+                </button>
+              );
+            })}
+
+            {/* Divider */}
+            <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
+            <div className="text-[10px] uppercase tracking-wider text-gray-500 px-3 mb-1">Admin</div>
+
+            {/* Admin tabs (flat in mobile, not dropdown) */}
+            {adminTabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    setActiveTab(tab.id);
+                    setMobileOpen(false);
+                  }}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-md text-[13px] font-medium transition-all w-full text-left ${
+                    isActive
+                      ? 'bg-blue-600 text-white shadow-glow'
+                      : 'text-gray-600 hover:bg-blue-50'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  {tab.label}
+                </button>
+              );
+            })}
+
+            {/* Divider */}
+            <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
+
+            {/* Right tabs */}
+            {rightTabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
               return (

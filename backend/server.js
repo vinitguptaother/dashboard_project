@@ -216,6 +216,7 @@ app.use('/api/compliance', require('./routes/compliance'));
 app.use('/api/validator', require('./routes/validator'));
 app.use('/api/scanner', require('./routes/scanner'));
 app.use('/api/bots', require('./routes/bots'));
+app.use('/api/sentinel', require('./routes/sentinel'));
 
 // Error handling middleware
 app.use(errorHandler);
@@ -899,6 +900,21 @@ function startScheduledTasks() {
       cadenceService.reportRun('corporate-actions', 'failure', error.message).catch(() => {});
     }
   }, { timezone: 'Asia/Kolkata' });
+
+  // Sentinel — runs every 5 min. Watches cadence, data freshness, risk state.
+  // MASTER_PLAN §3 System C. Writes ActionItems for the Today tab.
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      const sentinelService = require('./services/sentinelService');
+      const result = await sentinelService.runSentinelCycle();
+      const total = (result.missedTasks || 0) + (result.tokenIssues || 0) + (result.drawdownAlerts || 0);
+      if (total > 0) {
+        console.log(`🛰️  Sentinel: ${total} alerts (missed=${result.missedTasks}, token=${result.tokenIssues}, dd=${result.drawdownAlerts})`);
+      }
+    } catch (error) {
+      console.error('❌ Sentinel error:', error.message);
+    }
+  });
 
   // Risk Engine — EOD portfolio snapshot at 3:35 PM IST (after market close).
   // Persists equity + peak + drawdown for historical DD tracking.

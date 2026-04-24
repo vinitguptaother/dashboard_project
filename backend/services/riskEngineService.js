@@ -257,7 +257,49 @@ async function evaluateTrade(candidate) {
     reasons.push(`Drawdown ${dd.drawdownPct.toFixed(1)}% ≥ max ${dd.maxPct}% — lockout active.`);
   }
 
-  // 4) Per-trade risk cap (from Sprint 1 #14)
+  // 4) Regime compatibility gate (BOT_BLUEPRINT #30 wired to Validator)
+  try {
+    const regimeService = require('./regimeService');
+    const regimeDoc = await regimeService.getCurrent();
+    if (regimeDoc) {
+      const regime = regimeDoc.regime;
+      const confidence = regimeDoc.confidence || 0;
+      checks.regime = { regime, confidence, blocked: false };
+
+      // In risk-off: reject all new BUY trades regardless of confidence
+      if (regime === 'risk-off' && action === 'BUY') {
+        reasons.push(`Market regime is RISK-OFF (${(confidence * 100).toFixed(0)}% confidence) — new long entries blocked.`);
+        checks.regime.blocked = true;
+      }
+
+      // In trending-bear: block BUY trades with low confidence setups
+      // (candidate confidence stored as candidate.confidence; default assume 50 if not passed)
+      if (regime === 'trending-bear' && action === 'BUY') {
+        reasons.push(`Market regime is TRENDING-BEAR (${(confidence * 100).toFixed(0)}% regime confidence) — long entries require caution, suggested HOLD.`);
+        checks.regime.blocked = true;
+      }
+
+      // In trending-bull: block SELL shorts
+      if (regime === 'trending-bull' && action === 'SELL') {
+        reasons.push(`Market regime is TRENDING-BULL (${(confidence * 100).toFixed(0)}% confidence) — short entries blocked.`);
+        checks.regime.blocked = true;
+      }
+
+      // Choppy regime: no regime-based blocks, but flag low-confidence regime call
+      if (regime === 'choppy' && confidence < 0.5) {
+        // Don't block, just note in checks
+        checks.regime.note = 'Regime classification uncertain; proceed with caution.';
+      }
+    } else {
+      checks.regime = { regime: 'unknown', confidence: 0, blocked: false, note: 'No regime data available' };
+    }
+  } catch (regimeErr) {
+    // Regime service failure is soft — log but don't block trades
+    console.warn('[risk-engine] regime gate error:', regimeErr.message);
+    checks.regime = { error: regimeErr.message, blocked: false };
+  }
+
+  // 5) Per-trade risk cap (from Sprint 1 #14)
   if (qty && entryPrice && stopLoss) {
     const perShareRisk = Math.abs(entryPrice - stopLoss);
     const totalRisk = perShareRisk * qty;
@@ -268,7 +310,7 @@ async function evaluateTrade(candidate) {
     }
   }
 
-  // 5) Max position % of capital (from Sprint 1 #14)
+  // 6) Max position % of capital (from Sprint 1 #14)
   if (qty && entryPrice) {
     const notional = qty * entryPrice;
     const maxPos = (s.capital * s.maxPositionPct) / 100;
@@ -278,7 +320,7 @@ async function evaluateTrade(candidate) {
     }
   }
 
-  // 6) Sector concentration cap (new #10)
+  // 7) Sector concentration cap (new #10)
   const sectorState = await getSectorExposure();
   const current = sectorState.bySector.find(x => x.sector === sector);
   const currentExposure = current?.exposure || 0;
@@ -294,7 +336,7 @@ async function evaluateTrade(candidate) {
     reasons.push(`Sector ${sector} would reach ${newSectorPct.toFixed(1)}% > max ${s.maxSectorConcentrationPct}% of capital.`);
   }
 
-  // 7) Per-bot manual kill switch (#11)
+  // 8) Per-bot manual kill switch (#11)
   if (botId && botId !== 'manual') {
     const keyMap = { 'swing': 'swing', 'longterm': 'longterm', 'options-sell': 'optionsSell', 'options-buy': 'optionsBuy' };
     const k = keyMap[botId];
@@ -305,7 +347,7 @@ async function evaluateTrade(candidate) {
     }
   }
 
-  // 8) Per-bot concurrent positions + capital cap (new #10)
+  // 9) Per-bot concurrent positions + capital cap (new #10)
   if (botId && botId !== 'manual') {
     const keyMap = { 'swing': 'swing', 'longterm': 'longterm', 'options-sell': 'optionsSell', 'options-buy': 'optionsBuy' };
     const k = keyMap[botId];

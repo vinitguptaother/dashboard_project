@@ -20,6 +20,8 @@ import ActivitySummaryTab from './components/ActivitySummaryTab';
 import DataHealthPanel from './components/DataHealthPanel';
 import ControlCenterTab from './components/ControlCenterTab';
 import ComplianceTab from './components/ComplianceTab';
+import TodayTab from './components/TodayTab';
+import BotsAgentsTab from './components/BotsAgentsTab';
 import HelpTab from './components/HelpTab';
 import AIChatbot from './components/AIChatbot';
 import StickyNotes from './components/StickyNotes';
@@ -34,6 +36,10 @@ export default function Home() {
     switch (activeTab) {
       case 'dashboard':
         return <Dashboard />;
+      case 'today':
+        return <TodayTab />;
+      case 'bots-agents':
+        return <BotsAgentsTab />;
       case 'historical':
         return <HistoricalTab />;
       case 'portfolio':

@@ -176,6 +176,13 @@ const SEED_TASKS = [
     type: 'system', cadence: 'daily', schedule: '35 15 * * 1-5',
     graceMinutes: 120, category: 'risk', marketDaysOnly: true,
   },
+  {
+    taskKey: 'sentinel-monitor',
+    name: 'Sentinel self-awareness monitor (every 5 min)',
+    description: 'Watches cadence, data freshness, token expiry, risk state, pending approvals. Writes ActionItems to the Today tab.',
+    type: 'system', cadence: 'custom', schedule: '*/5 * * * *',
+    graceMinutes: 30, category: 'system',
+  },
 
   // ── User activities (no automation; user is expected to perform them)
   {

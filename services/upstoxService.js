@@ -473,6 +473,7 @@ class UpstoxService {
                     interval,
                     toDate.toISOString().split('T')[0],
                     fromDate.toISOString().split('T')[0],
+                    '2.0',
                     (error, data, response) => {
                         if (error) {
                             console.error('❌ Upstox Historical Data Error:', error.message);
