@@ -13,6 +13,7 @@
  */
 
 import BotOpsPanel from './BotOpsPanel';
+import ChiefAnalystChat from './ChiefAnalystChat';
 import { Bot, Sparkles, AlertTriangle, Clock, Zap, TrendingUp } from 'lucide-react';
 
 export default function BotsAgentsTab() {
@@ -41,6 +42,23 @@ export default function BotsAgentsTab() {
           <span className="text-xs text-gray-500">rule-based · paper mode · auto-run</span>
         </div>
         <BotOpsPanel />
+      </section>
+
+      {/* Chief Analyst Chat — always accessible */}
+      <section>
+        <details open className="rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-900/10">
+          <summary className="cursor-pointer list-none px-4 py-3 flex items-center justify-between select-none">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+              <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Ask Chief Analyst</h2>
+              <span className="text-xs text-gray-500">chat · context-aware · no memory write</span>
+            </div>
+            <span className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">click to expand / collapse</span>
+          </summary>
+          <div className="px-3 pb-3">
+            <ChiefAnalystChat />
+          </div>
+        </details>
       </section>
 
       {/* Section 2 — Research Agents (placeholder) */}

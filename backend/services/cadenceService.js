@@ -207,6 +207,50 @@ const SEED_TASKS = [
     graceMinutes: 45, category: 'market-data', marketDaysOnly: true,
   },
 
+  // ── Phase 4: Learning Engine + Chief Analyst + Meta-Critic ──────────────
+  {
+    taskKey: 'learning-cycle-nightly',
+    name: 'Learning Engine nightly cycle (11:30 PM IST)',
+    description: 'Aggregates closed trades → BotPerformance, evaluates auto-pause rules, writes ActionItems. BOT_BLUEPRINT #12.',
+    type: 'system', cadence: 'daily', schedule: '30 23 * * 1-5',
+    graceMinutes: 180, category: 'learning', marketDaysOnly: true,
+  },
+  {
+    taskKey: 'chief-analyst-premarket',
+    name: 'Chief Analyst pre-market briefing (07:00 IST)',
+    description: 'Daily pre-market synthesis — Claude Sonnet. Reads all agent outputs + context, writes briefing ActionItem.',
+    type: 'system', cadence: 'daily', schedule: '0 7 * * 1-5',
+    graceMinutes: 90, category: 'agents',
+  },
+  {
+    taskKey: 'chief-analyst-midday',
+    name: 'Chief Analyst mid-day briefing (12:00 IST)',
+    description: 'Mid-session check-in — Claude Sonnet. Updates market thesis with intraday regime/breadth.',
+    type: 'system', cadence: 'daily', schedule: '0 12 * * 1-5',
+    graceMinutes: 60, category: 'agents', marketDaysOnly: true,
+  },
+  {
+    taskKey: 'chief-analyst-postclose',
+    name: 'Chief Analyst post-close recap (15:35 IST)',
+    description: 'End-of-session synthesis — Claude Sonnet. Closes the loop on the day\'s thesis + FII/DII flow.',
+    type: 'system', cadence: 'daily', schedule: '35 15 * * 1-5',
+    graceMinutes: 120, category: 'agents', marketDaysOnly: true,
+  },
+  {
+    taskKey: 'chief-analyst-weekly',
+    name: 'Chief Analyst weekly deep review (Sunday 10:00 IST · Opus)',
+    description: 'Weekly deep review using Claude Opus. Reviews predictions, distils lessons, compacts short-term memory.',
+    type: 'system', cadence: 'weekly', schedule: '0 10 * * 0',
+    graceMinutes: 360, category: 'agents',
+  },
+  {
+    taskKey: 'meta-critic-weekly',
+    name: 'Meta-Critic weekly audit (Friday 18:00 IST)',
+    description: 'Audits all agents\' accuracy/consistency/utility, writes AgentCalibration rows, flags miscalibration.',
+    type: 'system', cadence: 'weekly', schedule: '0 18 * * 5',
+    graceMinutes: 360, category: 'agents',
+  },
+
   // ── User activities (no automation; user is expected to perform them)
   {
     taskKey: 'user-review-journal',

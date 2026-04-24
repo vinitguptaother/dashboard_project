@@ -51,11 +51,18 @@ interface ActionItem {
   risks?: string[];
 }
 
+interface ChiefAnalystBriefing {
+  title: string;
+  description: string;
+  createdAt: string;
+}
+
 export default function TodayTab(): ReactElement {
   const [items, setItems] = useState<ActionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [greeting, setGreeting] = useState('');
+  const [caBriefing, setCaBriefing] = useState<ChiefAnalystBriefing | null>(null);
 
   useEffect(() => {
     const hour = new Date().getHours();
@@ -72,7 +79,34 @@ export default function TodayTab(): ReactElement {
           status?: string;
           data?: ActionItem[];
         };
-        if (json.status === 'success') setItems(json.data || []);
+        if (json.status === 'success') {
+          const all = json.data || [];
+          setItems(all);
+
+          // Pick the most recent chief-analyst briefing (if any) for the header strip.
+          // We match by source=chief-analyst AND title starting with "Chief Analyst —".
+          const briefing = all
+            .filter(
+              (i) =>
+                i.source === 'chief-analyst' &&
+                typeof i.title === 'string' &&
+                i.title.startsWith('Chief Analyst —'),
+            )
+            .sort(
+              (a, b) =>
+                new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+            )[0];
+
+          if (briefing) {
+            setCaBriefing({
+              title: briefing.title,
+              description: briefing.description || '',
+              createdAt: briefing.createdAt,
+            });
+          } else {
+            setCaBriefing(null);
+          }
+        }
       }
     } catch (_) {
       // API may not exist yet in this environment — fail open
@@ -151,20 +185,45 @@ export default function TodayTab(): ReactElement {
           </button>
         </div>
 
-        {/* Chief Analyst briefing placeholder — populates in Phase 4 */}
+        {/* Chief Analyst briefing — real content in Phase 4 */}
         <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
           <div className="flex items-start gap-2">
             <Sparkles className="w-5 h-5 text-indigo-500 mt-0.5 shrink-0" />
-            <div>
-              <div className="text-xs uppercase font-bold tracking-wider text-indigo-600 dark:text-indigo-400 mb-1">
-                Chief Analyst
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <div className="text-xs uppercase font-bold tracking-wider text-indigo-600 dark:text-indigo-400">
+                  Chief Analyst
+                </div>
+                {caBriefing && (
+                  <span className="text-[10px] text-gray-500">
+                    {new Date(caBriefing.createdAt).toLocaleString('en-IN', {
+                      timeZone: 'Asia/Kolkata',
+                      day: '2-digit',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                )}
               </div>
-              <p className="text-sm text-gray-700 dark:text-gray-300">
-                <em className="text-gray-500">
-                  Chief Analyst briefings debut in Phase 4. For now: check the
-                  Dashboard tab for current market state.
-                </em>
-              </p>
+              {caBriefing ? (
+                <>
+                  <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">
+                    {caBriefing.title}
+                  </div>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line leading-relaxed">
+                    {caBriefing.description}
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-gray-700 dark:text-gray-300">
+                  <em className="text-gray-500">
+                    No Chief Analyst briefing yet. Trigger one manually from the
+                    Bots &amp; Agents tab, or wait for the next scheduled run
+                    (7:00, 12:00, or 15:35 IST on weekdays).
+                  </em>
+                </p>
+              )}
             </div>
           </div>
         </div>

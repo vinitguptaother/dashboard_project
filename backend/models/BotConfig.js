@@ -38,6 +38,10 @@ const botConfigSchema = new mongoose.Schema({
   lastRunAt: { type: Date, default: null },
   lastRunStatus: { type: String, enum: ['success', 'failure', 'skipped', null], default: null },
   lastRunSummary: { type: String, default: '' },
+  // Phase 4: Learning Engine auto-pause flag (separate from user-controlled `enabled`)
+  autoPaused: { type: Boolean, default: false },
+  autoPausedReason: { type: String, default: '' },
+  autoPausedAt: { type: Date, default: null },
 }, { timestamps: true });
 
 botConfigSchema.index({ botId: 1 });

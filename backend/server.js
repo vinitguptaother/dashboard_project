@@ -224,6 +224,7 @@ app.use('/api/patterns', require('./routes/patterns'));
 app.use('/api/portfolio-analyzer', require('./routes/portfolioAnalyzer'));
 app.use('/api/agents', require('./routes/agents'));
 app.use('/api/strategies', require('./routes/strategies'));
+app.use('/api/learning', require('./routes/learningEngine'));
 
 // Error handling middleware
 app.use(errorHandler);
@@ -844,6 +845,88 @@ function startScheduledTasks() {
       cadenceService.reportRun('screen-scoring', 'failure', error.message).catch(() => {});
     }
   });
+
+  // ─── Phase 4: Learning Engine nightly cycle (11:30 PM IST) ────────────────
+  // Runs AFTER screen scoring. Rolls up closed trades → BotPerformance,
+  // evaluates auto-pause rules, surfaces ActionItems. See learningEngineService.
+  cron.schedule('30 23 * * 1-5', async () => {
+    try {
+      console.log('🧠 Learning Engine nightly cycle started...');
+      const learning = require('./services/learningEngineService');
+      const result = await learning.runNightlyLearningCycle();
+      const paused = result.results.filter(r => r.pauseDecision?.pause).length;
+      console.log(`🧠 Learning cycle complete: ${result.botsProcessed} bots, ${paused} flagged`);
+      cadenceService.reportRun('learning-cycle-nightly', 'success', `bots=${result.botsProcessed} flagged=${paused}`).catch(() => {});
+    } catch (error) {
+      console.error('❌ Learning Engine cron error:', error.message);
+      cadenceService.reportRun('learning-cycle-nightly', 'failure', error.message).catch(() => {});
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+  // ─── Phase 4: Chief Analyst — 3× daily briefings ──────────────────────────
+  // Pre-market 07:00 IST · Mid-day 12:00 IST · Post-close 15:35 IST (Mon-Fri)
+  const chiefAnalystCrons = [
+    { expr: '0 7 * * 1-5',   label: 'pre-market',  mode: 'briefing', taskKey: 'chief-analyst-premarket' },
+    { expr: '0 12 * * 1-5',  label: 'mid-day',     mode: 'briefing', taskKey: 'chief-analyst-midday' },
+    { expr: '35 15 * * 1-5', label: 'post-close',  mode: 'briefing', taskKey: 'chief-analyst-postclose' },
+  ];
+  for (const c of chiefAnalystCrons) {
+    cron.schedule(c.expr, async () => {
+      try {
+        console.log(`🧠 Chief Analyst (${c.label}) starting…`);
+        const chiefAnalyst = require('./services/agents/chiefAnalyst');
+        const result = await chiefAnalyst.run({ mode: c.mode });
+        if (result.success) {
+          console.log(`🧠 Chief Analyst (${c.label}) done · cost $${(result.costUSD || 0).toFixed(4)}`);
+          cadenceService.reportRun(c.taskKey, 'success', `cost=$${(result.costUSD || 0).toFixed(4)}`).catch(() => {});
+        } else {
+          console.warn(`⚠️  Chief Analyst (${c.label}) skipped: ${result.error}`);
+          cadenceService.reportRun(c.taskKey, 'failure', result.error).catch(() => {});
+        }
+      } catch (error) {
+        console.error(`❌ Chief Analyst (${c.label}) error:`, error.message);
+        cadenceService.reportRun(c.taskKey, 'failure', error.message).catch(() => {});
+      }
+    }, { timezone: 'Asia/Kolkata' });
+  }
+
+  // ─── Phase 4: Chief Analyst — weekly deep review (Sunday 10:00 IST, Opus) ─
+  cron.schedule('0 10 * * 0', async () => {
+    try {
+      console.log('🧠 Chief Analyst weekly deep review (Opus) starting…');
+      const chiefAnalyst = require('./services/agents/chiefAnalyst');
+      const result = await chiefAnalyst.run({ mode: 'deep-review' });
+      if (result.success) {
+        console.log(`🧠 Weekly deep review done · cost $${(result.costUSD || 0).toFixed(4)}`);
+        cadenceService.reportRun('chief-analyst-weekly', 'success', `cost=$${(result.costUSD || 0).toFixed(4)}`).catch(() => {});
+      } else {
+        console.warn(`⚠️  Weekly deep review skipped: ${result.error}`);
+        cadenceService.reportRun('chief-analyst-weekly', 'failure', result.error).catch(() => {});
+      }
+    } catch (error) {
+      console.error('❌ Chief Analyst weekly cron error:', error.message);
+      cadenceService.reportRun('chief-analyst-weekly', 'failure', error.message).catch(() => {});
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+  // ─── Phase 4: Meta-Critic weekly (Friday 18:00 IST) ───────────────────────
+  cron.schedule('0 18 * * 5', async () => {
+    try {
+      console.log('🔍 Meta-Critic weekly audit starting…');
+      const metaCritic = require('./services/agents/metaCritic');
+      const result = await metaCritic.run({ windowDays: 30 });
+      if (result.success) {
+        console.log('🔍 Meta-Critic audit complete');
+        cadenceService.reportRun('meta-critic-weekly', 'success', '').catch(() => {});
+      } else {
+        console.warn(`⚠️  Meta-Critic skipped: ${result.error}`);
+        cadenceService.reportRun('meta-critic-weekly', 'failure', result.error).catch(() => {});
+      }
+    } catch (error) {
+      console.error('❌ Meta-Critic cron error:', error.message);
+      cadenceService.reportRun('meta-critic-weekly', 'failure', error.message).catch(() => {});
+    }
+  }, { timezone: 'Asia/Kolkata' });
 
   // Daily ATM IV snapshot at 3:25 PM IST (Mon-Fri) — captured just before market
   // close so IVs reflect the full day's trading. Populates OptionsIVHistory

@@ -23,6 +23,8 @@ const marketScout = require('../services/agents/marketScout');
 const smartMoneyTracker = require('../services/agents/smartMoneyTracker');
 const sentimentWatcher = require('../services/agents/sentimentWatcher');
 const patternMiner = require('../services/agents/patternMiner');
+const chiefAnalyst = require('../services/agents/chiefAnalyst');
+const metaCritic = require('../services/agents/metaCritic');
 
 // Generic runner — keeps all agent endpoints identical in shape.
 // `runOpts` lets callers pass per-run parameters (e.g. tradeSetupId for Pattern Miner).
@@ -60,6 +62,58 @@ router.post('/sentiment-watcher/run', (req, res) => runAgent(sentimentWatcher, '
 router.post('/pattern-miner/run', (req, res) => {
   const tradeSetupId = req.query.tradeSetupId || (req.body && req.body.tradeSetupId) || undefined;
   return runAgent(patternMiner, 'pattern-miner', res, { tradeSetupId });
+});
+
+// ─── POST /api/agents/chief-analyst/run ─────────────────────────────────────
+// Accepts ?mode=briefing|deep-review (default briefing) and optional ?model=...
+router.post('/chief-analyst/run', (req, res) => {
+  const mode = String((req.query.mode || (req.body && req.body.mode) || 'briefing')).toLowerCase();
+  if (!['briefing', 'deep-review'].includes(mode)) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'mode must be "briefing" or "deep-review" (use /chat for chat mode)',
+    });
+  }
+  const model = req.query.model || (req.body && req.body.model);
+  return runAgent(chiefAnalyst, 'chief-analyst', res, { mode, model });
+});
+
+// ─── POST /api/agents/chief-analyst/chat ────────────────────────────────────
+// Body: { query: string } — returns conversational reply, DOES NOT write memory
+router.post('/chief-analyst/chat', async (req, res) => {
+  const query = (req.body && req.body.query) || req.query.query;
+  if (!query || typeof query !== 'string') {
+    return res.status(400).json({ status: 'error', message: 'query (string) is required in body' });
+  }
+  return runAgent(chiefAnalyst, 'chief-analyst', res, { mode: 'chat', userQuery: query });
+});
+
+// ─── GET /api/agents/chief-analyst/memory/:storeKey ─────────────────────────
+router.get('/chief-analyst/memory/:storeKey', async (req, res) => {
+  try {
+    const { storeKey } = req.params;
+    const content = await chiefAnalyst.loadMemory(storeKey);
+    return res.json({
+      status: 'success',
+      data: {
+        agentKey: 'chief-analyst',
+        storeKey,
+        content,
+        _exists: content !== null,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+// ─── POST /api/agents/meta-critic/run ───────────────────────────────────────
+router.post('/meta-critic/run', (req, res) => {
+  const windowDays = parseInt(
+    req.query.windowDays || (req.body && req.body.windowDays) || 30,
+    10
+  );
+  return runAgent(metaCritic, 'meta-critic', res, { windowDays });
 });
 
 // ─── GET /api/agents/usage ──────────────────────────────────────────────────
