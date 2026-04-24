@@ -5,6 +5,8 @@ import { TrendingUp, TrendingDown, Layers, LineChart as LineChartIcon, Target, C
 import LiveIndexBar from './LiveIndexBar';
 import TodayTopActionsPreview from './TodayTopActionsPreview';
 import TradeIdeaDiff from './TradeIdeaDiff';
+import AnimatedBorderCard from './ui/AnimatedBorderCard';
+import NumberCountUp from './ui/NumberCountUp';
 import PositionSizer from './PositionSizer';
 import DailyPnLWidget from './DailyPnLWidget';
 import FiiDiiWidget from './FiiDiiWidget';
@@ -248,76 +250,160 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Section B: Stat Tiles — Top row (3 key stats, Lovable style) */}
+      {/* Section B: Stat Tiles — Koyfin-dense × Aceternity border */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="glass-effect rounded-lg p-4 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-blue-600/10 flex items-center justify-center shrink-0">
-            <Layers className="w-5 h-5 text-blue-500" />
+        <AnimatedBorderCard glowColor="blue" padding="normal">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-[rgba(62,130,247,0.1)] flex items-center justify-center shrink-0 shadow-glow">
+              <Layers className="w-4.5 h-4.5 text-[var(--accent)]" />
+            </div>
+            <div className="min-w-0">
+              <p className="label-micro mb-0.5">Total Screens</p>
+              <NumberCountUp
+                value={totalScreens}
+                duration={600}
+                className="text-2xl font-semibold text-[var(--text-1)]"
+              />
+            </div>
           </div>
-          <div>
-            <p className="text-[11px] text-gray-500">Total Screens</p>
-            <p className="text-2xl font-bold font-mono-nums text-gray-900">{totalScreens}</p>
+        </AnimatedBorderCard>
+
+        <AnimatedBorderCard glowColor="green" padding="normal">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-[rgba(38,208,124,0.1)] flex items-center justify-center shrink-0">
+              <TrendingUp className="w-4.5 h-4.5 text-[var(--up)]" />
+            </div>
+            <div className="min-w-0">
+              <p className="label-micro mb-0.5">Active Idea Batches</p>
+              <NumberCountUp
+                value={activeBatches}
+                duration={600}
+                delayMs={80}
+                className="text-2xl font-semibold text-[var(--text-1)]"
+              />
+            </div>
           </div>
-        </div>
-        <div className="glass-effect rounded-lg p-4 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-green-600/10 flex items-center justify-center shrink-0">
-            <TrendingUp className="w-5 h-5 text-green-500" />
+        </AnimatedBorderCard>
+
+        <AnimatedBorderCard glowColor="violet" padding="normal">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-[rgba(155,76,255,0.1)] flex items-center justify-center shrink-0">
+              <Target className="w-4.5 h-4.5" style={{ color: 'var(--glow-violet)' }} />
+            </div>
+            <div className="min-w-0">
+              <p className="label-micro mb-0.5">Last 3-Month Hit Rate</p>
+              {hitRate != null ? (
+                <NumberCountUp
+                  value={hitRate}
+                  duration={700}
+                  decimals={0}
+                  suffix="%"
+                  delayMs={160}
+                  className="text-2xl font-semibold text-[var(--text-1)]"
+                />
+              ) : (
+                <p className="text-2xl font-semibold font-mono-nums text-[var(--text-3)]">–</p>
+              )}
+            </div>
           </div>
-          <div>
-            <p className="text-[11px] text-gray-500">Active Idea Batches</p>
-            <p className="text-2xl font-bold font-mono-nums text-gray-900">{activeBatches}</p>
-          </div>
-        </div>
-        <div className="glass-effect rounded-lg p-4 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-purple-600/10 flex items-center justify-center shrink-0">
-            <Target className="w-5 h-5 text-purple-500" />
-          </div>
-          <div>
-            <p className="text-[11px] text-gray-500">Last 3-Month Hit Rate</p>
-            <p className="text-2xl font-bold font-mono-nums text-gray-900">{hitRate != null ? `${hitRate}%` : '–'}</p>
-          </div>
-        </div>
+        </AnimatedBorderCard>
       </div>
 
       {/* Section B2: Secondary stats row */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="glass-effect rounded-lg p-4 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-orange-600/10 flex items-center justify-center shrink-0">
-            <Target className="w-5 h-5 text-orange-500" />
+        <AnimatedBorderCard glowColor="amber" padding="normal">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-[rgba(245,166,35,0.1)] flex items-center justify-center shrink-0">
+              <Target className="w-4.5 h-4.5 text-[var(--warn)]" />
+            </div>
+            <div className="min-w-0">
+              <p className="label-micro mb-0.5">AI Setup Win Rate</p>
+              {tradeStats?.winRate != null ? (
+                <NumberCountUp
+                  value={tradeStats.winRate}
+                  duration={600}
+                  suffix="%"
+                  className="text-2xl font-semibold text-[var(--text-1)]"
+                />
+              ) : (
+                <p className="text-2xl font-semibold font-mono-nums text-[var(--text-3)]">–</p>
+              )}
+            </div>
           </div>
-          <div>
-            <p className="text-[11px] text-gray-500">AI Setup Win Rate</p>
-            <p className="text-2xl font-bold font-mono-nums text-gray-900">{tradeStats?.winRate != null ? `${tradeStats.winRate}%` : '–'}</p>
+        </AnimatedBorderCard>
+
+        <AnimatedBorderCard glowColor="blue" padding="normal">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-[rgba(62,130,247,0.1)] flex items-center justify-center shrink-0">
+              <Target className="w-4.5 h-4.5 text-[var(--accent)]" />
+            </div>
+            <div className="min-w-0">
+              <p className="label-micro mb-0.5">Paper Trades Active</p>
+              <NumberCountUp
+                value={paperStats?.active ?? 0}
+                duration={500}
+                delayMs={80}
+                className="text-2xl font-semibold text-[var(--text-1)]"
+              />
+              {paperStats && (paperStats.wins > 0 || paperStats.losses > 0) && (
+                <p className="text-[10px] text-[var(--text-3)] font-mono-nums mt-0.5">
+                  {paperStats.wins}W / {paperStats.losses}L
+                </p>
+              )}
+            </div>
           </div>
-        </div>
-        <div className="glass-effect rounded-lg p-4 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-indigo-600/10 flex items-center justify-center shrink-0">
-            <Target className="w-5 h-5 text-indigo-500" />
+        </AnimatedBorderCard>
+
+        <AnimatedBorderCard
+          glowColor={
+            paperStats?.winRate != null && paperStats.winRate >= 50 ? 'green' : 'red'
+          }
+          padding="normal"
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                paperStats?.winRate != null && paperStats.winRate >= 50
+                  ? 'bg-[rgba(38,208,124,0.1)]'
+                  : 'bg-[rgba(240,74,74,0.1)]'
+              }`}
+            >
+              <CheckCircle
+                className={`w-4.5 h-4.5 ${
+                  paperStats?.winRate != null && paperStats.winRate >= 50
+                    ? 'text-[var(--up)]'
+                    : 'text-[var(--down)]'
+                }`}
+              />
+            </div>
+            <div className="min-w-0">
+              <p className="label-micro mb-0.5">Paper Win Rate</p>
+              {paperStats?.winRate != null ? (
+                <NumberCountUp
+                  value={paperStats.winRate}
+                  duration={650}
+                  delayMs={160}
+                  suffix="%"
+                  className={`text-2xl font-semibold ${
+                    paperStats.winRate >= 50 ? 'text-[var(--up)]' : 'text-[var(--down)]'
+                  }`}
+                />
+              ) : (
+                <p className="text-2xl font-semibold font-mono-nums text-[var(--text-3)]">–</p>
+              )}
+              {paperStats?.avgReturnPct != null && (
+                <p
+                  className={`text-[10px] font-mono-nums mt-0.5 ${
+                    paperStats.avgReturnPct >= 0 ? 'price-up' : 'price-down'
+                  }`}
+                >
+                  Avg {paperStats.avgReturnPct > 0 ? '+' : ''}
+                  {paperStats.avgReturnPct}%
+                </p>
+              )}
+            </div>
           </div>
-          <div>
-            <p className="text-[11px] text-gray-500">Paper Trades Active</p>
-            <p className="text-2xl font-bold font-mono-nums text-gray-900">{paperStats?.active ?? 0}</p>
-            {paperStats && (paperStats.wins > 0 || paperStats.losses > 0) && (
-              <p className="text-[10px] text-gray-500">{paperStats.wins}W / {paperStats.losses}L</p>
-            )}
-          </div>
-        </div>
-        <div className="glass-effect rounded-lg p-4 flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${paperStats?.winRate != null && paperStats.winRate >= 50 ? 'bg-green-600/10' : 'bg-red-600/10'}`}>
-            <CheckCircle className={`w-5 h-5 ${paperStats?.winRate != null && paperStats.winRate >= 50 ? 'text-green-500' : 'text-red-500'}`} />
-          </div>
-          <div>
-            <p className="text-[11px] text-gray-500">Paper Win Rate</p>
-            <p className={`text-2xl font-bold font-mono-nums ${paperStats?.winRate != null && paperStats.winRate >= 50 ? 'text-green-500' : paperStats?.winRate != null ? 'text-red-500' : 'text-gray-900'}`}>
-              {paperStats?.winRate != null ? `${paperStats.winRate}%` : '–'}
-            </p>
-            {paperStats?.avgReturnPct != null && (
-              <p className={`text-[10px] ${paperStats.avgReturnPct >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                Avg {paperStats.avgReturnPct > 0 ? '+' : ''}{paperStats.avgReturnPct}%
-              </p>
-            )}
-          </div>
-        </div>
+        </AnimatedBorderCard>
       </div>
 
       {/* Section: Market Regime + Top Gainer/Loser */}

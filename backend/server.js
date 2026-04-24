@@ -230,6 +230,7 @@ app.use('/api/strategies', require('./routes/strategies'));
 app.use('/api/learning', require('./routes/learningEngine'));
 app.use('/api/backtest', require('./routes/backtest'));
 app.use('/api/strategy-tuner', require('./routes/strategyTuner'));
+app.use('/api/master-refresh', require('./routes/masterRefresh'));
 
 // Error handling middleware
 app.use(errorHandler);
@@ -1185,6 +1186,30 @@ function startScheduledTasks() {
       cadenceService.reportRun('market-breadth-hourly', 'failure', error.message).catch(() => {});
     }
   }, { timezone: 'Asia/Kolkata' });
+
+  // ─── Master Refresh — 3× daily automated quick-mode passes ─────────────
+  // 9:00 AM IST (market open prep) · 3:35 PM IST (EOD data ready) · 7:00 PM IST (after FII/DII publishes)
+  // Each run: upstox cache, FII/DII, regime, sector rotation, participant OI, corp events, large deals,
+  // sentinel + learning cycle, enabled bot triggers. NO AI agents in quick mode (cost ~₹0).
+  const MASTER_REFRESH_CRONS = [
+    { expr: '0 9 * * *',   label: 'market-open-prep' },
+    { expr: '35 15 * * *', label: 'eod-data' },
+    { expr: '0 19 * * *',  label: 'post-fii-dii' },
+  ];
+  for (const mr of MASTER_REFRESH_CRONS) {
+    cron.schedule(mr.expr, async () => {
+      try {
+        const masterRefreshService = require('./services/masterRefreshService');
+        console.log(`🔁 Master Refresh (${mr.label}) starting…`);
+        const result = await masterRefreshService.runMasterRefresh({ mode: 'quick', trigger: 'cron' });
+        console.log(`🔁 Master Refresh (${mr.label}) done · ${result.summary}`);
+        cadenceService.reportRun('master-refresh-auto', 'success', `${mr.label}: ${result.summary}`).catch(() => {});
+      } catch (error) {
+        console.error(`❌ Master Refresh (${mr.label}) error:`, error.message);
+        cadenceService.reportRun('master-refresh-auto', 'failure', error.message).catch(() => {});
+      }
+    }, { timezone: 'Asia/Kolkata' });
+  }
 
   // GIFT Nifty pre-market gap predictor — every 15 min, 6:30 AM – 9:15 AM IST, Mon-Fri.
   // Scrapes GIFT Nifty level + compares to yesterday's NIFTY close.

@@ -274,6 +274,18 @@ const SEED_TASKS = [
     graceMinutes: 360, category: 'system',
   },
 
+  // ── Master Refresh automated (3× daily) ─────────────────────────────────
+  {
+    taskKey: 'master-refresh-auto',
+    name: 'Master Refresh — automated quick pass (3× daily)',
+    description: 'Automatic quick-mode Master Refresh at 09:00 IST (market open prep), 15:35 IST (EOD data ready) and 19:00 IST (post-FII/DII). Keeps every data surface fresh without user action.',
+    // Watchdog cadence is the shortest gap between runs (~4 hours 35 min between
+    // 09:00 and 15:35, and 3 hours 25 min between 15:35 and 19:00). Use a ~5h
+    // cadence so the watchdog only flags truly missed slots.
+    type: 'system', cadence: 'custom', schedule: '0 9 * * *, 35 15 * * *, 0 19 * * *',
+    graceMinutes: 240, category: 'system',
+  },
+
   // ── User activities (no automation; user is expected to perform them)
   {
     taskKey: 'user-review-journal',

@@ -52,6 +52,22 @@ export const HELP_CONTENT: HelpSection[] = [
           'Quarterly review shows rupee cost per mistake category.',
         ],
       },
+      {
+        title: 'Master Refresh Button',
+        summary: 'One-click orchestrator that runs every data refresh + (optionally) every AI agent. Floating bottom-right, always visible.',
+        steps: [
+          'Left-click: Quick refresh (20-40 sec, ~₹0) — data only.',
+          'Right-click or long-press: open menu to pick Quick or Full (with AI).',
+          'Keyboard shortcut: press R for quick, Shift+R for full (only when not typing).',
+          'Progress modal shows live step-by-step status with cost.',
+          'Cron-scheduled: runs automatically at 9 AM IST, 3:35 PM IST, 7 PM IST.',
+        ],
+        tips: [
+          'Status dot (top-right of button) reflects last run: green=success, amber=partial, red=failure, sky=running.',
+          'Cooldown: 1 run per 5 minutes per trigger to avoid hammering sources.',
+          'Cost cap: full mode is limited to ~$1.20 USD per run by default.',
+        ],
+      },
     ],
   },
 
