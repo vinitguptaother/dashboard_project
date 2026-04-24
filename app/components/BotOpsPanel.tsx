@@ -285,7 +285,7 @@ export default function BotOpsPanel() {
         <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
           <div className="text-[10px] uppercase font-bold tracking-wider text-gray-500 mb-1.5">Recent runs</div>
           {runs.length === 0 ? (
-            <div className="text-[11px] text-gray-500 italic">No runs yet — click "Run now" on any bot.</div>
+            <div className="text-[11px] text-gray-500 italic">No runs yet — click &quot;Run now&quot; on any bot.</div>
           ) : (
             <div className="space-y-0.5 max-h-48 overflow-y-auto">
               {runs.map((r) => (

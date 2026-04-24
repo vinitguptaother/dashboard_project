@@ -136,7 +136,7 @@ export default function BotsAgentsTab() {
         <div className="rounded-xl border-2 border-rose-200 dark:border-rose-800 bg-rose-50/40 dark:bg-rose-900/10 p-4">
           <p className="text-sm text-gray-700 dark:text-gray-300">
             Sentinel watches your duties, data freshness, pending approvals, and risk state.
-            When something needs your attention, it appears in the <strong>Today</strong> tab with a clear "what · why · impact · action" card.
+            When something needs your attention, it appears in the <strong>Today</strong> tab with a clear &quot;what · why · impact · action&quot; card.
           </p>
           <p className="text-xs text-gray-500 mt-2 italic">
             Basic version active now. Full version with all alert categories launches in Phase 1.
