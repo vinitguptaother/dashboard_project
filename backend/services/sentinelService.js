@@ -196,6 +196,9 @@ async function checkAgentHealth() {
     { agentId: 'market-scout', name: 'Market Scout', expectedRuns: 7 },         // daily
     { agentId: 'smart-money-tracker', name: 'Smart Money Tracker', expectedRuns: 1 }, // weekly
     { agentId: 'sentiment-watcher', name: 'Sentiment Watcher', expectedRuns: 140 },   // hourly × market hours
+    // Pattern Miner: manual-trigger only in Phase 3. Expected runs track roughly
+    // one invocation per closed trade per week (conservative default: 2).
+    { agentId: 'pattern-miner', name: 'Pattern Miner', expectedRuns: 2 },
   ];
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   let flagged = 0;
@@ -250,6 +253,8 @@ async function checkAgentHealth() {
             ? 'Without daily briefings you start sessions blind to overnight moves.'
             : e.agentId === 'smart-money-tracker'
             ? 'Weekly HNI/FII footprint read is missing — you lose leading-edge context.'
+            : e.agentId === 'pattern-miner'
+            ? 'Post-trade lessons aren\'t being extracted — recurring mistakes will compound.'
             : 'Hourly chatter watch is down — unusual moves on watchlist stocks go undetected.',
           action: e.agentId === 'sentiment-watcher'
             ? 'Check ANTHROPIC_API_KEY + PERPLEXITY_API_KEY, or trigger via POST /api/agents/sentiment-watcher/run.'

@@ -223,6 +223,7 @@ app.use('/api/gift-nifty', require('./routes/giftNifty'));
 app.use('/api/patterns', require('./routes/patterns'));
 app.use('/api/portfolio-analyzer', require('./routes/portfolioAnalyzer'));
 app.use('/api/agents', require('./routes/agents'));
+app.use('/api/strategies', require('./routes/strategies'));
 
 // Error handling middleware
 app.use(errorHandler);
@@ -299,6 +300,14 @@ function startScheduledTasks() {
     botService.seedBotConfigs()
       .then(n => console.log(`🤖 Bot Configs: ${n} bots seeded/verified`))
       .catch(e => console.error('❌ Bot Config seed error:', e.message));
+  } catch (e) { /* first-boot tolerance */ }
+
+  // ── Seed Strategy Library (idempotent) — MASTER_PLAN §7 Phase 3 ───────────
+  try {
+    const strategies = require('./services/strategies');
+    strategies.seedStrategies()
+      .then(r => console.log(`📘 Strategy Library: ${r.inserted} inserted, ${r.updated} updated, ${r.total} total`))
+      .catch(e => console.error('❌ Strategy seed error:', e.message));
   } catch (e) { /* first-boot tolerance */ }
 
   // ── Holiday list refresh on startup + daily at 6 AM IST (00:30 UTC) ────────

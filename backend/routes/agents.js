@@ -5,10 +5,11 @@
  *   POST /api/agents/market-scout/run          — manual trigger, returns full output
  *   POST /api/agents/smart-money-tracker/run   — weekly Sunday agent (manual trigger)
  *   POST /api/agents/sentiment-watcher/run     — hourly market-hours agent (manual trigger)
+ *   POST /api/agents/pattern-miner/run         — post-trade lesson extractor (Phase 3)
  *   GET  /api/agents/usage?days=30             — LLMUsage aggregates (cost visibility)
  *   GET  /api/agents/memory/:agentKey          — dump AgentMemory for debugging
  *
- * NO cron scheduling — manual trigger only for now (Phase 1-2 Track B).
+ * NO cron scheduling — manual trigger only for now (Phase 1-3 Track B).
  */
 
 const express = require('express');
@@ -21,11 +22,13 @@ const AgentMemory = require('../models/AgentMemory');
 const marketScout = require('../services/agents/marketScout');
 const smartMoneyTracker = require('../services/agents/smartMoneyTracker');
 const sentimentWatcher = require('../services/agents/sentimentWatcher');
+const patternMiner = require('../services/agents/patternMiner');
 
-// Generic runner — keeps all agent endpoints identical in shape
-async function runAgent(agent, agentKey, res) {
+// Generic runner — keeps all agent endpoints identical in shape.
+// `runOpts` lets callers pass per-run parameters (e.g. tradeSetupId for Pattern Miner).
+async function runAgent(agent, agentKey, res, runOpts = undefined) {
   try {
-    const result = await agent.run();
+    const result = runOpts !== undefined ? await agent.run(runOpts) : await agent.run();
     // partial = Perplexity-half worked, Claude-half failed (still HTTP 200, flagged)
     const statusCode = result.success ? 200 : (result.partial ? 200 : 500);
     return res.status(statusCode).json({
@@ -50,6 +53,14 @@ router.post('/smart-money-tracker/run', (req, res) => runAgent(smartMoneyTracker
 
 // ─── POST /api/agents/sentiment-watcher/run ─────────────────────────────────
 router.post('/sentiment-watcher/run', (req, res) => runAgent(sentimentWatcher, 'sentiment-watcher', res));
+
+// ─── POST /api/agents/pattern-miner/run ─────────────────────────────────────
+// Optional: ?tradeSetupId=<id> or body.tradeSetupId — analyse a specific trade.
+// Without it, picks the most recent closed trade without an existing lesson.
+router.post('/pattern-miner/run', (req, res) => {
+  const tradeSetupId = req.query.tradeSetupId || (req.body && req.body.tradeSetupId) || undefined;
+  return runAgent(patternMiner, 'pattern-miner', res, { tradeSetupId });
+});
 
 // ─── GET /api/agents/usage ──────────────────────────────────────────────────
 /**

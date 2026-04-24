@@ -25,8 +25,11 @@ const mongoose = require('mongoose');
 const compliance = require('./complianceService');
 const validator = require('./validatorService');
 const patternService = require('./patternService');
+const regimeService = require('./regimeService');
+const strategies = require('./strategies');
 const Screen = require('../models/Screen');
 const ScreenBatch = require('../models/ScreenBatch');
+const Strategy = require('../models/Strategy');
 const RiskSettings = require('../models/RiskSettings');
 
 // ─── Rule-based candidate level generation ──────────────────────────────────
@@ -154,6 +157,128 @@ async function buildCandidateWithLevels({
   }
 }
 
+// ─── Strategy-driven candidate builder ──────────────────────────────────────
+
+/**
+ * Try every compatible strategy in priority order. Returns the first strategy
+ * that fires a non-null candidate; falls back to the pattern-aware mechanical
+ * builder if none fire. Also updates Strategy metadata counters.
+ *
+ * botId / regime / sector / liquidityBand are forwarded to the strategy
+ * via `evaluate({ ... })`.
+ */
+async function buildCandidateWithStrategies({
+  symbol, lastPrice, botId = 'swing', sector = 'Unclassified',
+  liquidityBand = 'MID', risk = {}, regime, context = {},
+}) {
+  if (!symbol || !lastPrice || lastPrice <= 0) return null;
+
+  // Pattern levels (S/R + ATR + candles) — re-used for strategy evaluate()
+  let patternLevels = null;
+  let candles = [];
+  try {
+    patternLevels = await patternService.getLevelsForSymbol(symbol, lastPrice);
+    // Pattern service has the candles internally; re-fetch for strategies.
+    candles = await patternService.getDailyCloses(symbol, 220); // enough for 200 DMA
+  } catch (_) {
+    // Insufficient history / Upstox hiccup: strategies still run with empty
+    // candles (they guard on length internally and return null).
+  }
+
+  const regimeTag = regime?.regime || regime || 'unknown';
+  const compatible = strategies.getCompatibleStrategies(botId, regimeTag)
+    .filter(s => s.enabled !== false);
+
+  const strategyContext = {
+    symbol,
+    candles,
+    lastPrice,
+    atr: patternLevels?.atr,
+    supports: patternLevels?.allSupports || [],
+    resistances: patternLevels?.allResistances || [],
+    regime: regime || { regime: regimeTag },
+    sector,
+    context,
+  };
+
+  let firedStrategy = null;
+  let firedCandidate = null;
+  for (const strat of compatible) {
+    try {
+      const out = await strat.evaluate(strategyContext);
+      // Light stat bump — metadata-only, no trade side-effects.
+      await Strategy.updateOne(
+        { key: strat.key },
+        {
+          $set: { lastRunAt: new Date() },
+          $inc: { runCount: 1, ...(out ? { acceptedCount: 1 } : { rejectedCount: 1 }) },
+        },
+      ).catch(() => {});
+      if (out) {
+        firedStrategy = strat;
+        firedCandidate = out;
+        break;
+      }
+    } catch (err) {
+      console.warn(`[scanner] strategy ${strat.key} evaluate() failed on ${symbol}:`, err.message);
+    }
+  }
+
+  if (firedCandidate && firedStrategy) {
+    const entry = firedCandidate.entryPrice;
+    const slMove = Math.max(entry - firedCandidate.stopLoss, 0.01);
+    const rewardMove = Math.max(firedCandidate.target - entry, 0.01);
+    const rr = parseFloat((rewardMove / slMove).toFixed(2));
+
+    // Sizing: 2% of default capital risk
+    const defaultCapital = 500000;
+    const defaultRiskPct = 2;
+    const riskRupees = (defaultCapital * defaultRiskPct) / 100;
+    const qty = Math.max(1, Math.floor(riskRupees / slMove));
+
+    return {
+      botId,
+      symbol: symbol.toUpperCase(),
+      action: firedCandidate.action || 'BUY',
+      qty,
+      entryPrice: entry,
+      stopLoss: firedCandidate.stopLoss,
+      target: firedCandidate.target,
+      sector,
+      segment: firedStrategy.segment,
+      liquidityBand: patternLevels?.liquidityBand || liquidityBand,
+      tradeType: botId === 'longterm' ? 'INVESTMENT' : 'SWING',
+      holdingDuration: botId === 'longterm' ? '3-6 months' : '2-4 weeks',
+      confidence: firedCandidate.confidence ?? 60,
+      reasoning: `[${firedStrategy.name}] ${firedCandidate.reasoning}`,
+      strategyKey: firedStrategy.key,
+      strategyName: firedStrategy.name,
+      riskFactors: [
+        `Strategy: ${firedStrategy.name}`,
+        `Regime: ${regimeTag}`,
+        `R:R 1:${rr}`,
+      ],
+      allowOffHours: true,
+      patternLevels: patternLevels ? {
+        atr: patternLevels.atr,
+        atrPct: patternLevels.atrPct,
+        nearestSupport: patternLevels.nearestSupport,
+        nearestResistance: patternLevels.nearestResistance,
+      } : null,
+    };
+  }
+
+  // No strategy fired — fall back to the pattern-aware mechanical builder.
+  const fallback = await buildCandidateWithLevels({
+    symbol, lastPrice, botId, sector, liquidityBand, risk,
+  });
+  if (fallback) {
+    fallback.strategyKey = null;
+    fallback.strategyName = null;
+  }
+  return fallback;
+}
+
 // ─── Sector resolution (best-effort) ────────────────────────────────────────
 
 async function resolveSector(screenName) {
@@ -163,15 +288,31 @@ async function resolveSector(screenName) {
   return screenName.replace(/\s+screen$/i, '').trim() || 'Unclassified';
 }
 
-// ─── Main scan: from latest batch of a specific screen ──────────────────────
+// ─── Main scan (strategy-aware) ─────────────────────────────────────────────
 
-async function scanScreen({
+/**
+ * scanScreenWithStrategies — Phase 3 evolution of scanScreen.
+ *
+ * For each symbol in the screen's top-N:
+ *   1. Fetch pattern levels (existing patternService)
+ *   2. Fetch current regime (existing regimeService)
+ *   3. Filter strategies: getCompatibleStrategies(botId, regime)
+ *   4. For each compatible strategy, call strategy.evaluate(...)
+ *   5. If any strategy fires → use its candidate, tagged with strategyKey
+ *   6. Else fall back to the pattern-aware mechanical builder
+ *   7. Run every candidate through the Validator unchanged
+ *
+ * The returned shape is identical to the old scanScreen, plus each
+ * candidate carries a strategyKey / strategyName field (null on fallback).
+ */
+async function scanScreenWithStrategies({
   screenId,
   botId = 'swing',
   topN = 5,
   persistAccepted = false,
   liquidityBand = 'MID',
   risk = {},
+  context = {},
 }) {
   // 1) Resolve the screen + latest batch
   const screen = await Screen.findById(screenId).lean();
@@ -203,16 +344,18 @@ async function scanScreen({
   }
 
   const sector = await resolveSector(screen.name);
+  const regime = await regimeService.getCurrent().catch(() => null);
 
-  // 3) Build candidates (pattern-aware) + log a 'generated' compliance event for each.
-  //    buildCandidateWithLevels is async — run in parallel, then filter nulls.
-  const candidateResults = await Promise.all(ranked.map(r => buildCandidateWithLevels({
+  // 3) Build candidates (strategy-first, pattern fallback) in parallel
+  const candidateResults = await Promise.all(ranked.map(r => buildCandidateWithStrategies({
     symbol: r.symbol,
     lastPrice: r.lastPrice,
     botId,
     sector,
     liquidityBand,
     risk,
+    regime,
+    context,
   })));
   const candidates = candidateResults.filter(Boolean);
 
@@ -227,8 +370,11 @@ async function scanScreen({
       stopLoss: c.stopLoss,
       target: c.target,
       price: c.entryPrice,
-      reasoning: `Scanner: ${screen.name} top-${topN} pick. Rank by score.`,
-      reasons: [`screen=${screen.name}`, `screenId=${screenId}`, `topN=${topN}`, `bot=${c.botId}`],
+      reasoning: `Scanner: ${screen.name} top-${topN} pick. ${c.strategyKey ? `Strategy: ${c.strategyKey}` : 'Fallback: pattern-levels'}.`,
+      reasons: [
+        `screen=${screen.name}`, `screenId=${screenId}`, `topN=${topN}`, `bot=${c.botId}`,
+        c.strategyKey ? `strategy=${c.strategyKey}` : 'strategy=none',
+      ],
     });
   }
 
@@ -237,8 +383,11 @@ async function scanScreen({
 
   // 5) Summarize
   const reasons = {};
+  const strategyCounts = {};
   let accepted = 0, rejected = 0;
   for (const r of batchResults) {
+    const sk = r.candidate?.strategyKey || 'fallback';
+    strategyCounts[sk] = (strategyCounts[sk] || 0) + 1;
     if (r.result.accepted) accepted++;
     else {
       rejected++;
@@ -252,27 +401,64 @@ async function scanScreen({
     screen: { id: screen._id, name: screen.name },
     batch: { id: latestBatch._id, runDate: latestBatch.runDate, symbolCount: (latestBatch.rankedResults || []).length },
     candidates: batchResults,
-    summary: { scanned: candidates.length, accepted, rejected, reasons, topReason: Object.keys(reasons).sort((a,b) => reasons[b]-reasons[a])[0] || null },
+    summary: {
+      scanned: candidates.length,
+      accepted,
+      rejected,
+      reasons,
+      strategyCounts,
+      topReason: Object.keys(reasons).sort((a,b) => reasons[b]-reasons[a])[0] || null,
+    },
     botId,
+    regime: regime?.regime || 'unknown',
   };
+}
+
+/**
+ * Backwards-compatible wrapper — preserves the old signature for existing
+ * callers (botService, routes). All new code should call
+ * scanScreenWithStrategies directly.
+ */
+async function scanScreen(opts) {
+  return scanScreenWithStrategies(opts);
 }
 
 // ─── Single-symbol ad-hoc scan ──────────────────────────────────────────────
 
-async function scanSymbol({ symbol, lastPrice, botId = 'manual', persistAccepted = false, sector = 'Unclassified', liquidityBand = 'MID', risk = {} }) {
+async function scanSymbol({ symbol, lastPrice, botId = 'manual', persistAccepted = false, sector = 'Unclassified', liquidityBand = 'MID', risk = {}, context = {} }) {
   if (!symbol) throw new Error('symbol required');
   if (!lastPrice) throw new Error('lastPrice required (pass from current quote)');
-  const candidate = await buildCandidateWithLevels({ symbol, lastPrice, botId, sector, liquidityBand, risk });
+  const regime = await regimeService.getCurrent().catch(() => null);
+
+  // Strategy Library is keyed off bot segments. 'manual' has no strategies
+  // defined yet, so fall back to the pattern-aware mechanical builder.
+  let candidate = null;
+  if (botId && botId !== 'manual') {
+    candidate = await buildCandidateWithStrategies({
+      symbol, lastPrice, botId, sector, liquidityBand, risk, regime, context,
+    });
+  } else {
+    candidate = await buildCandidateWithLevels({ symbol, lastPrice, botId, sector, liquidityBand, risk });
+    if (candidate) {
+      candidate.strategyKey = null;
+      candidate.strategyName = null;
+    }
+  }
+
   if (!candidate) throw new Error('Failed to build candidate');
+
   await compliance.recordEvent({
     botId: candidate.botId, decision: 'generated',
     symbol: candidate.symbol, action: candidate.action, quantity: candidate.qty,
     entryPrice: candidate.entryPrice, stopLoss: candidate.stopLoss, target: candidate.target,
-    reasoning: `Scanner: ad-hoc symbol scan.`,
-    reasons: [`adhoc=true`, `bot=${candidate.botId}`],
+    reasoning: `Scanner: ad-hoc symbol scan. ${candidate.strategyKey ? `Strategy: ${candidate.strategyKey}` : 'Fallback: pattern-levels'}.`,
+    reasons: [
+      `adhoc=true`, `bot=${candidate.botId}`,
+      candidate.strategyKey ? `strategy=${candidate.strategyKey}` : 'strategy=none',
+    ],
   });
   const result = await validator.validateCandidate(candidate, { persist: persistAccepted });
-  return { candidate, result };
+  return { candidate, result, regime: regime?.regime || 'unknown' };
 }
 
 // ─── Recent scans (merged from compliance 'generated' + 'accepted'/'rejected') ─
@@ -282,4 +468,12 @@ async function getRecentScans({ limit = 20 } = {}) {
   return rows;
 }
 
-module.exports = { scanScreen, scanSymbol, getRecentScans };
+module.exports = {
+  scanScreen,
+  scanScreenWithStrategies,
+  scanSymbol,
+  getRecentScans,
+  // Exposed for tests + future reuse
+  buildCandidateWithStrategies,
+  buildCandidateWithLevels,
+};
