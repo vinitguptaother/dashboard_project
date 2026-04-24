@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, Layers, LineChart as LineChartIcon, Target, CheckCircle, XCircle, Clock, ArrowUpRight, ArrowDownRight, Activity, BarChart3, Minus } from 'lucide-react';
 import LiveIndexBar from './LiveIndexBar';
+import TodayTopActionsPreview from './TodayTopActionsPreview';
 import PositionSizer from './PositionSizer';
 import DailyPnLWidget from './DailyPnLWidget';
 import FiiDiiWidget from './FiiDiiWidget';
@@ -160,6 +161,9 @@ const Dashboard = () => {
     <div className="space-y-6 slide-in">
       {/* Live Index Bar - Keep exactly as is */}
       <LiveIndexBar pollMs={5000} />
+
+      {/* Section A0.5 (Phase 1 Track C): Today's top-3 actions preview — links to Today tab */}
+      <TodayTopActionsPreview />
 
       {/* Section A: Today's Top Ideas */}
       <div className="glass-effect rounded-xl p-6 shadow-lg accent-left">

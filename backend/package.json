@@ -10,6 +10,7 @@
     "seed": "node scripts/seedData.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.91.0",
     "axios": "^1.5.0",
     "bcryptjs": "^2.4.3",
     "cheerio": "^1.2.0",

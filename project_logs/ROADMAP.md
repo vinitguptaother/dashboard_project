@@ -40,6 +40,8 @@
 
 ---
 
+> **UPDATE 2026-04-24:** Master plan + agent architecture locked. See [MASTER_PLAN.md](MASTER_PLAN.md) for current 7-phase build order including the 6-agent AI research system (Chief Analyst + 5 specialists + Meta-Critic), Sentinel self-awareness service, and Portfolio Analyzer. The sprint order below is historical — current Phase execution tracked in MASTER_PLAN + CHANGELOG.
+
 ## 📋 Build Order (6 sprints to paper-ready, then TBD weeks to live)
 
 **Sprint 1 (Weeks 1–3): Discipline loop + Data health** — **✅ 9 of 9 DONE (2026-04-17)**
@@ -55,6 +57,21 @@ Items: 5 Scanner ✅, 6 Validator ✅, 7 Executor 🟡 (live-only, defer until p
 
 **Sprint 4 (Weeks 11–14): 4 Bots + first 6 strategies + Learning Engine** — **4 of 6 done (2026-04-17)**
 Items: 1 Swing Bot ✅, 2 Long-term Bot ✅, 3 Options Sell Bot ✅, 4 Options Buy Bot ✅ (all via unified botService with per-bot cron, config, kill switch), 8 Strategy Library 🟡, 12 Learning Engine 🟡
+
+**Phase 0 (2026-04-24): Foundation fixes + tab restructure** — **✅ DONE**
+- Master plan locked (MASTER_PLAN.md)
+- Tab restructure: 9 primary + Admin dropdown + mobile-friendly
+- Today tab (action center)
+- Bots & Agents tab (unified AI activity)
+- Sentinel service (self-awareness + ActionItems)
+- Regime gate wired into Validator
+- History tab API fixed
+- 29 cadence tasks active
+
+**Phase 1 (2026-04-24+): Patterns + Agent Foundation + UX redesign** — **IN PROGRESS (3 parallel tracks)**
+Track A: Pattern Recognition (S/R, ATR, candlesticks, breakout-retest)
+Track B: Agent Runner (llmService, AgentBase, Market Scout debut)
+Track C: Suggestion Card (reusable everywhere) + Today tab wired
 
 **Sprint 5 (Weeks 15–16): Complete Strategy Library + Start Paper Trading**
 Items: 8 Strategy Library (remaining 8 strategies) + begin paper trading

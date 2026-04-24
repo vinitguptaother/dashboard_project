@@ -217,6 +217,8 @@ app.use('/api/validator', require('./routes/validator'));
 app.use('/api/scanner', require('./routes/scanner'));
 app.use('/api/bots', require('./routes/bots'));
 app.use('/api/sentinel', require('./routes/sentinel'));
+app.use('/api/patterns', require('./routes/patterns'));
+app.use('/api/agents', require('./routes/agents'));
 
 // Error handling middleware
 app.use(errorHandler);

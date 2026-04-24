@@ -24,6 +24,7 @@
 const mongoose = require('mongoose');
 const compliance = require('./complianceService');
 const validator = require('./validatorService');
+const patternService = require('./patternService');
 const Screen = require('../models/Screen');
 const ScreenBatch = require('../models/ScreenBatch');
 const RiskSettings = require('../models/RiskSettings');
@@ -88,6 +89,71 @@ function buildMechanicalCandidate({
   };
 }
 
+/**
+ * Pattern-aware candidate: uses real S/R + ATR levels when available,
+ * falls back to the mechanical builder on any failure.
+ */
+async function buildCandidateWithLevels({
+  symbol, lastPrice, botId = 'swing', sector = 'Unclassified',
+  liquidityBand = 'MID', risk = {},
+}) {
+  const base = buildMechanicalCandidate({ symbol, lastPrice, botId, sector, liquidityBand, risk });
+  if (!base) return null;
+
+  try {
+    const levels = await patternService.getLevelsForSymbol(symbol, lastPrice);
+    if (!levels || !levels.suggestedStopLoss || !levels.suggestedTarget) return base;
+
+    const entry = base.entryPrice;
+    const stopLoss = levels.suggestedStopLoss;
+    const target = levels.suggestedTarget;
+
+    // Sanity: SL must be below entry, target above entry. Otherwise fall back.
+    if (!(stopLoss < entry && target > entry)) return base;
+
+    const slMove = entry - stopLoss;
+    const rewardMove = target - entry;
+    const rr = slMove > 0 ? parseFloat((rewardMove / slMove).toFixed(2)) : 0;
+
+    // Re-size qty to 2% capital risk given the (usually tighter) S/R-based stop.
+    const defaultCapital = 500000;
+    const defaultRiskPct = 2;
+    const riskRupees = (defaultCapital * defaultRiskPct) / 100;
+    const qty = Math.max(1, Math.floor(riskRupees / Math.max(slMove, 0.01)));
+
+    // Band the pattern-derived liquidity assessment into the candidate
+    // (options segment keeps caller-provided band).
+    const finalLiquidityBand = base.segment === 'options' ? base.liquidityBand : levels.liquidityBand;
+
+    const supportTxt = levels.nearestSupport != null ? `support ₹${levels.nearestSupport}` : 'ATR floor';
+    const resistanceTxt = levels.nearestResistance != null ? `resistance ₹${levels.nearestResistance}` : 'ATR ceiling';
+
+    return {
+      ...base,
+      qty,
+      stopLoss,
+      target,
+      liquidityBand: finalLiquidityBand,
+      confidence: 65, // real levels → bump confidence one notch
+      reasoning: `S/R-based levels · Scanner pick. SL at ${supportTxt}, target at ${resistanceTxt}. ATR ${levels.atr} (${levels.atrPct}%), R:R 1:${rr}.`,
+      riskFactors: [
+        `Pivot-derived levels from last 120d candles`,
+        `ATR ${levels.atrPct}% → ${levels.liquidityBand}`,
+        'Verify current S/R on your chart before entry',
+      ],
+      patternLevels: {
+        atr: levels.atr,
+        atrPct: levels.atrPct,
+        nearestSupport: levels.nearestSupport,
+        nearestResistance: levels.nearestResistance,
+      },
+    };
+  } catch (err) {
+    // Pattern failure (insufficient history, Upstox hiccup) → mechanical fallback.
+    return base;
+  }
+}
+
 // ─── Sector resolution (best-effort) ────────────────────────────────────────
 
 async function resolveSector(screenName) {
@@ -138,15 +204,17 @@ async function scanScreen({
 
   const sector = await resolveSector(screen.name);
 
-  // 3) Build candidates + log a 'generated' compliance event for each
-  const candidates = ranked.map(r => buildMechanicalCandidate({
+  // 3) Build candidates (pattern-aware) + log a 'generated' compliance event for each.
+  //    buildCandidateWithLevels is async — run in parallel, then filter nulls.
+  const candidateResults = await Promise.all(ranked.map(r => buildCandidateWithLevels({
     symbol: r.symbol,
     lastPrice: r.lastPrice,
     botId,
     sector,
     liquidityBand,
     risk,
-  })).filter(Boolean);
+  })));
+  const candidates = candidateResults.filter(Boolean);
 
   for (const c of candidates) {
     await compliance.recordEvent({
@@ -194,7 +262,7 @@ async function scanScreen({
 async function scanSymbol({ symbol, lastPrice, botId = 'manual', persistAccepted = false, sector = 'Unclassified', liquidityBand = 'MID', risk = {} }) {
   if (!symbol) throw new Error('symbol required');
   if (!lastPrice) throw new Error('lastPrice required (pass from current quote)');
-  const candidate = buildMechanicalCandidate({ symbol, lastPrice, botId, sector, liquidityBand, risk });
+  const candidate = await buildCandidateWithLevels({ symbol, lastPrice, botId, sector, liquidityBand, risk });
   if (!candidate) throw new Error('Failed to build candidate');
   await compliance.recordEvent({
     botId: candidate.botId, decision: 'generated',
