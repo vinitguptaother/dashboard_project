@@ -20,6 +20,9 @@
 const ActionItem = require('../models/ActionItem');
 const CadenceTask = require('../models/CadenceTask');
 const RiskSettings = require('../models/RiskSettings');
+const LLMUsage = require('../models/LLMUsage');
+const Watchlist = require('../models/Watchlist');
+const TradeSetup = require('../models/TradeSetup');
 const cadenceService = require('./cadenceService');
 
 // ─── Utility: dedup upsert ──────────────────────────────────────────────────
@@ -138,6 +141,186 @@ async function checkPendingApprovals() {
   return 0;
 }
 
+// ─── Check 5: Pending agent outputs awaiting user review ───────────────────
+/**
+ * Surfaces a meta-alert if HIGH/URGENT ActionItems produced by agents
+ * have been sitting unread for more than 2 hours.
+ */
+async function checkPendingAgentOutputs() {
+  try {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    const items = await ActionItem.find({
+      status: 'new',
+      createdAt: { $lt: twoHoursAgo },
+      priority: { $in: ['URGENT', 'HIGH'] },
+      source: { $in: ['chief-analyst', 'pattern-miner', 'trading-bot'] },
+    }).lean();
+
+    if (items.length === 0) {
+      // Clear any prior meta-alert by resolving it silently
+      return 0;
+    }
+
+    // Group by source for a concise one-liner
+    const sourceCounts = {};
+    for (const it of items) {
+      sourceCounts[it.source] = (sourceCounts[it.source] || 0) + 1;
+    }
+    const sourcesLine = Object.entries(sourceCounts)
+      .map(([s, n]) => `${n} from ${s}`)
+      .join(', ');
+
+    await upsertAlert({
+      dedupKey: 'sentinel:pending-agent-outputs',
+      title: `${items.length} un-reviewed high-priority items from agents`,
+      description: `You have ${items.length} new ActionItems older than 2 hours: ${sourcesLine}.`,
+      impact: 'Ignoring agent outputs defeats the purpose of running them — their insights go stale fast.',
+      action: 'Open the Today tab → triage (acknowledge, act, or dismiss) the oldest first.',
+      priority: 'HIGH',
+      source: 'sentinel',
+    });
+    return 1;
+  } catch (err) {
+    console.warn('[sentinel] checkPendingAgentOutputs failed:', err.message);
+    return 0;
+  }
+}
+
+// ─── Check 6: Agent health (are agents actually running?) ──────────────────
+/**
+ * For each known agent, compare expected run count (per week) vs actual
+ * successful LLMUsage entries in the last 7 days. Flag behind-schedule.
+ */
+async function checkAgentHealth() {
+  const expected = [
+    { agentId: 'market-scout', name: 'Market Scout', expectedRuns: 7 },         // daily
+    { agentId: 'smart-money-tracker', name: 'Smart Money Tracker', expectedRuns: 1 }, // weekly
+    { agentId: 'sentiment-watcher', name: 'Sentiment Watcher', expectedRuns: 140 },   // hourly × market hours
+  ];
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  let flagged = 0;
+
+  try {
+    // We define "a run" as any successful `:synthesize` / `:classify` LLMUsage row.
+    // Fallback: any successful row for that agentId.
+    const agg = await LLMUsage.aggregate([
+      { $match: { at: { $gte: sevenDaysAgo }, success: true, agentId: { $in: expected.map(e => e.agentId) } } },
+      {
+        $group: {
+          _id: { agentId: '$agentId', op: '$operation' },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    // Count distinct run-synthesis events per agent
+    const runCountByAgent = {};
+    for (const row of agg) {
+      const aid = row._id.agentId;
+      const op = row._id.op || '';
+      // Each agent has one "terminal" operation (synthesize / classify) — counting that
+      // avoids double-counting Perplexity + Claude from the same run.
+      if (op.endsWith(':synthesize') || op.endsWith(':classify')) {
+        runCountByAgent[aid] = (runCountByAgent[aid] || 0) + row.count;
+      }
+    }
+    // Fallback: if the terminal op has zero rows (e.g. Anthropic key missing),
+    // count any successful Perplexity row as "half a run" so we don't wildly
+    // under-report. Still enough to flag when nothing is running at all.
+    for (const e of expected) {
+      if ((runCountByAgent[e.agentId] || 0) > 0) continue;
+      const perplexityRows = agg
+        .filter(r => r._id.agentId === e.agentId && !r._id.op?.endsWith(':synthesize') && !r._id.op?.endsWith(':classify'))
+        .reduce((s, r) => s + r.count, 0);
+      if (perplexityRows > 0) {
+        runCountByAgent[e.agentId] = Math.floor(perplexityRows / 2) || 1;
+      }
+    }
+
+    for (const e of expected) {
+      const got = runCountByAgent[e.agentId] || 0;
+      // Tolerance: flag only if got < 50% of expected (avoid noisy alerts)
+      const threshold = Math.max(1, Math.floor(e.expectedRuns * 0.5));
+      if (got < threshold) {
+        await upsertAlert({
+          dedupKey: `sentinel:agent-health:${e.agentId}`,
+          title: `Agent ${e.name} is behind schedule`,
+          description: `Expected ~${e.expectedRuns} runs in the last 7 days, got ${got}.`,
+          impact: e.agentId === 'market-scout'
+            ? 'Without daily briefings you start sessions blind to overnight moves.'
+            : e.agentId === 'smart-money-tracker'
+            ? 'Weekly HNI/FII footprint read is missing — you lose leading-edge context.'
+            : 'Hourly chatter watch is down — unusual moves on watchlist stocks go undetected.',
+          action: e.agentId === 'sentiment-watcher'
+            ? 'Check ANTHROPIC_API_KEY + PERPLEXITY_API_KEY, or trigger via POST /api/agents/sentiment-watcher/run.'
+            : `Trigger manually: POST /api/agents/${e.agentId}/run — check LLMUsage for errors.`,
+          priority: 'MEDIUM',
+          source: 'sentinel',
+        });
+        flagged += 1;
+      }
+    }
+  } catch (err) {
+    console.warn('[sentinel] checkAgentHealth failed:', err.message);
+  }
+  return flagged;
+}
+
+// ─── Check 7: Watchlist staleness ───────────────────────────────────────────
+/**
+ * Flags watchlist symbols added > 30 days ago that were never traded
+ * (no TradeSetup exists for them) and never queried (no AI analysis run).
+ */
+async function checkWatchlistStaleness() {
+  try {
+    const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+    const cutoff = new Date(Date.now() - THIRTY_DAYS);
+
+    const watchlists = await Watchlist.find({}).lean();
+    const staleSymbols = [];
+
+    // Candidate stale symbols first — old, no analysis ever recorded
+    const candidates = [];
+    for (const wl of watchlists) {
+      for (const item of (wl.items || [])) {
+        if (!item.symbol) continue;
+        const addedAt = item.addedAt ? new Date(item.addedAt) : null;
+        if (!addedAt || addedAt >= cutoff) continue;
+        const neverQueried = !item.lastAnalysis || !item.lastAnalysis.analyzedAt;
+        if (!neverQueried) continue;
+        candidates.push(item.symbol.toUpperCase());
+      }
+    }
+
+    if (candidates.length === 0) return 0;
+
+    // Filter out any that have a TradeSetup (ever traded)
+    const traded = await TradeSetup.find({ symbol: { $in: candidates } })
+      .select('symbol').lean();
+    const tradedSet = new Set(traded.map(t => (t.symbol || '').toUpperCase()));
+
+    for (const sym of candidates) {
+      if (!tradedSet.has(sym)) staleSymbols.push(sym);
+    }
+
+    if (staleSymbols.length === 0) return 0;
+
+    await upsertAlert({
+      dedupKey: 'sentinel:watchlist-stale',
+      title: `${staleSymbols.length} stale watchlist symbols — consider pruning`,
+      description: `These symbols were added > 30 days ago, never traded, never analysed: ${staleSymbols.slice(0, 15).join(', ')}${staleSymbols.length > 15 ? ` + ${staleSymbols.length - 15} more` : ''}.`,
+      impact: 'A cluttered watchlist hides real signals and wastes the hourly Sentiment Watcher budget.',
+      action: 'Open Watchlist → remove symbols you no longer care about, or run a quick analysis on the rest.',
+      priority: 'LOW',
+      source: 'sentinel',
+    });
+    return staleSymbols.length;
+  } catch (err) {
+    console.warn('[sentinel] checkWatchlistStaleness failed:', err.message);
+    return 0;
+  }
+}
+
 // ─── Main runner ────────────────────────────────────────────────────────────
 
 async function runSentinelCycle() {
@@ -146,11 +329,17 @@ async function runSentinelCycle() {
     tokenIssues: 0,
     drawdownAlerts: 0,
     pendingApprovals: 0,
+    pendingAgentOutputs: 0,
+    agentHealthFlags: 0,
+    staleWatchlistSymbols: 0,
   };
   try { results.missedTasks = await checkMissedTasks(); } catch (_) {}
   try { results.tokenIssues = await checkUpstoxToken(); } catch (_) {}
   try { results.drawdownAlerts = await checkDrawdownState(); } catch (_) {}
   try { results.pendingApprovals = await checkPendingApprovals(); } catch (_) {}
+  try { results.pendingAgentOutputs = await checkPendingAgentOutputs(); } catch (_) {}
+  try { results.agentHealthFlags = await checkAgentHealth(); } catch (_) {}
+  try { results.staleWatchlistSymbols = await checkWatchlistStaleness(); } catch (_) {}
   return results;
 }
 

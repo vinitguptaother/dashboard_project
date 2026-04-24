@@ -217,7 +217,11 @@ app.use('/api/validator', require('./routes/validator'));
 app.use('/api/scanner', require('./routes/scanner'));
 app.use('/api/bots', require('./routes/bots'));
 app.use('/api/sentinel', require('./routes/sentinel'));
+app.use('/api/participant-oi', require('./routes/participantOI'));
+app.use('/api/breadth', require('./routes/breadth'));
+app.use('/api/gift-nifty', require('./routes/giftNifty'));
 app.use('/api/patterns', require('./routes/patterns'));
+app.use('/api/portfolio-analyzer', require('./routes/portfolioAnalyzer'));
 app.use('/api/agents', require('./routes/agents'));
 
 // Error handling middleware
@@ -1000,6 +1004,64 @@ function startScheduledTasks() {
     } catch (error) {
       console.error('❌ FII/DII cron error:', error.message);
       cadenceService.reportRun('fii-dii-daily', 'failure', error.message).catch(() => {});
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+  // ─── Phase 2 Track A — Indian-market edge signals ─────────────────────────
+
+  // Participant-wise OI — daily 6:30 PM IST Mon-Fri (NSE publishes EOD).
+  // Long/short ratios for FII, DII, Client, Pro in index F&O.
+  cron.schedule('30 18 * * 1-5', async () => {
+    try {
+      const { holidays } = holidayService.getHolidays();
+      if (!isMarketOpen(new Date(new Date().setHours(12, 0, 0, 0)), holidays)) return;
+      const participantOIService = require('./services/participantOIService');
+      const result = await participantOIService.refreshLatest();
+      if (result.ok) {
+        const d = result.doc;
+        console.log(`📐 Participant OI (${d.date}) from ${result.source} · FII fut=${d.fii_long_short_ratio_futures} · FII opt=${d.fii_long_short_ratio_options} · DII=${d.dii_long_short_ratio} · Client=${d.client_long_short_ratio}`);
+        cadenceService.reportRun('participant-oi-daily', 'success', `source=${result.source}`).catch(() => {});
+      } else {
+        console.warn('⚠️  Participant OI fetch failed:', result.errors);
+        cadenceService.reportRun('participant-oi-daily', 'failure', (result.errors || []).join('; ')).catch(() => {});
+      }
+    } catch (error) {
+      console.error('❌ Participant OI cron error:', error.message);
+      cadenceService.reportRun('participant-oi-daily', 'failure', error.message).catch(() => {});
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+  // Market Breadth — hourly snapshot during market hours (10 AM – 3 PM IST).
+  // Stores a BreadthSnapshot row so we can chart breadth divergence vs NIFTY price.
+  cron.schedule('0 10-15 * * 1-5', async () => {
+    try {
+      const { holidays } = holidayService.getHolidays();
+      if (!isMarketOpen(new Date(), holidays)) return;
+      const breadthService = require('./services/breadthService');
+      const doc = await breadthService.snapshotAndStore();
+      console.log(`🌐 Breadth snapshot: adv ${doc.adv} / decl ${doc.decl} (ratio ${doc.advDeclRatio}) · 52wH ${doc.pct52WHighs}% · ${doc.breadth}`);
+      cadenceService.reportRun('market-breadth-hourly', 'success', `${doc.breadth} ratio=${doc.advDeclRatio}`).catch(() => {});
+    } catch (error) {
+      console.error('❌ Market Breadth error:', error.message);
+      cadenceService.reportRun('market-breadth-hourly', 'failure', error.message).catch(() => {});
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+  // GIFT Nifty pre-market gap predictor — every 15 min, 6:30 AM – 9:15 AM IST, Mon-Fri.
+  // Scrapes GIFT Nifty level + compares to yesterday's NIFTY close.
+  cron.schedule('*/15 6-9 * * 1-5', async () => {
+    try {
+      const giftSvc = require('./services/giftNiftyService');
+      const pred = await giftSvc.predictOpenGap();
+      if (pred.predictedGapDirection === 'UNKNOWN') {
+        console.log(`🔭 GIFT Nifty: ${pred.note || 'gap unknown'}`);
+      } else {
+        console.log(`🔭 GIFT Nifty ${pred.giftLevel} (${pred.giftSource}) · yest close ${pred.yesterdayClose} · predicted gap ${pred.predictedGapPct}% ${pred.predictedGapDirection}`);
+      }
+      cadenceService.reportRun('gift-nifty-premarket', 'success', `${pred.predictedGapDirection} ${pred.predictedGapPct ?? 'n/a'}%`).catch(() => {});
+    } catch (error) {
+      console.error('❌ GIFT Nifty cron error:', error.message);
+      cadenceService.reportRun('gift-nifty-premarket', 'failure', error.message).catch(() => {});
     }
   }, { timezone: 'Asia/Kolkata' });
 }

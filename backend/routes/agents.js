@@ -2,11 +2,13 @@
  * AI Agents API — MASTER_PLAN §3-4.
  *
  * Endpoints:
- *   POST /api/agents/market-scout/run   — manual trigger, returns full output
- *   GET  /api/agents/usage?days=30      — LLMUsage aggregates (cost visibility)
- *   GET  /api/agents/memory/:agentKey   — dump AgentMemory for debugging
+ *   POST /api/agents/market-scout/run          — manual trigger, returns full output
+ *   POST /api/agents/smart-money-tracker/run   — weekly Sunday agent (manual trigger)
+ *   POST /api/agents/sentiment-watcher/run     — hourly market-hours agent (manual trigger)
+ *   GET  /api/agents/usage?days=30             — LLMUsage aggregates (cost visibility)
+ *   GET  /api/agents/memory/:agentKey          — dump AgentMemory for debugging
  *
- * NO cron scheduling — manual trigger only for now (Phase 1 Track B).
+ * NO cron scheduling — manual trigger only for now (Phase 1-2 Track B).
  */
 
 const express = require('express');
@@ -17,25 +19,37 @@ const AgentMemory = require('../models/AgentMemory');
 
 // Agent singletons (each file exports a ready-to-use instance)
 const marketScout = require('../services/agents/marketScout');
+const smartMoneyTracker = require('../services/agents/smartMoneyTracker');
+const sentimentWatcher = require('../services/agents/sentimentWatcher');
 
-// ─── POST /api/agents/market-scout/run ──────────────────────────────────────
-router.post('/market-scout/run', async (req, res) => {
+// Generic runner — keeps all agent endpoints identical in shape
+async function runAgent(agent, agentKey, res) {
   try {
-    const result = await marketScout.run();
-    const statusCode = result.success ? 200 : 500;
+    const result = await agent.run();
+    // partial = Perplexity-half worked, Claude-half failed (still HTTP 200, flagged)
+    const statusCode = result.success ? 200 : (result.partial ? 200 : 500);
     return res.status(statusCode).json({
-      status: result.success ? 'success' : 'error',
-      agent: 'market-scout',
+      status: result.success ? 'success' : (result.partial ? 'partial' : 'error'),
+      agent: agentKey,
       data: result,
     });
   } catch (err) {
     return res.status(500).json({
       status: 'error',
-      agent: 'market-scout',
+      agent: agentKey,
       message: err.message,
     });
   }
-});
+}
+
+// ─── POST /api/agents/market-scout/run ──────────────────────────────────────
+router.post('/market-scout/run', (req, res) => runAgent(marketScout, 'market-scout', res));
+
+// ─── POST /api/agents/smart-money-tracker/run ───────────────────────────────
+router.post('/smart-money-tracker/run', (req, res) => runAgent(smartMoneyTracker, 'smart-money-tracker', res));
+
+// ─── POST /api/agents/sentiment-watcher/run ─────────────────────────────────
+router.post('/sentiment-watcher/run', (req, res) => runAgent(sentimentWatcher, 'sentiment-watcher', res));
 
 // ─── GET /api/agents/usage ──────────────────────────────────────────────────
 /**

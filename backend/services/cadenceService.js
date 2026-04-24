@@ -184,6 +184,29 @@ const SEED_TASKS = [
     graceMinutes: 30, category: 'system',
   },
 
+  // ── Phase 2 Track A: Indian-market edge signals ─────────────────────────
+  {
+    taskKey: 'participant-oi-daily',
+    name: 'Participant-wise OI daily fetch (6:30 PM IST)',
+    description: 'NSE EOD participant-wise open interest — FII/DII/Client/Pro long-short ratios in index F&O. Highest-leverage Indian derivatives positioning signal.',
+    type: 'system', cadence: 'daily', schedule: '30 18 * * 1-5',
+    graceMinutes: 180, category: 'market-data', marketDaysOnly: true,
+  },
+  {
+    taskKey: 'market-breadth-hourly',
+    name: 'Market Breadth snapshot (hourly, market hours)',
+    description: 'Advance/Decline ratio + 52-week high count across NIFTY 50 universe (MVP). Snapshots once per hour 10 AM – 3 PM IST. Powers breadth-divergence detection.',
+    type: 'system', cadence: 'custom', schedule: '0 10-15 * * 1-5',
+    graceMinutes: 90, category: 'market-data', marketDaysOnly: true,
+  },
+  {
+    taskKey: 'gift-nifty-premarket',
+    name: 'GIFT Nifty pre-market gap predictor (every 15 min, 6:30–9:15 AM)',
+    description: 'Scrapes GIFT Nifty live level and compares to yesterday\'s NIFTY close to predict the opening gap. Runs every 15 min during the pre-market window.',
+    type: 'system', cadence: 'custom', schedule: '*/15 6-9 * * 1-5',
+    graceMinutes: 45, category: 'market-data', marketDaysOnly: true,
+  },
+
   // ── User activities (no automation; user is expected to perform them)
   {
     taskKey: 'user-review-journal',

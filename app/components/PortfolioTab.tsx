@@ -4,10 +4,12 @@ import { useEffect, useState } from 'react';
 import {
   Eye, Plus, Trash2, TrendingUp, TrendingDown, RefreshCw,
   Sparkles, MessageSquare, X, Search, ArrowUpRight, ArrowDownRight,
-  Clock, ShieldCheck
+  Clock, ShieldCheck, BarChart3, ChevronDown, ChevronUp
 } from 'lucide-react';
+import PortfolioAnalyzerSection from './PortfolioAnalyzerSection';
 
 const BACKEND_URL = 'http://localhost:5002';
+const ANALYZER_VISIBLE_KEY = 'portfolio-analyzer-visible';
 
 interface WatchlistAnalysis {
   score: number | null;
@@ -54,6 +56,19 @@ const PortfolioTab = () => {
   const [notesValue, setNotesValue] = useState('');
   const [filterSignal, setFilterSignal] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
+  const [showAnalyzer, setShowAnalyzer] = useState<boolean>(true);
+
+  // Persist analyzer show/hide across reloads
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(ANALYZER_VISIBLE_KEY);
+      if (stored === 'false') setShowAnalyzer(false);
+    } catch { /* no-op */ }
+  }, []);
+  const toggleAnalyzer = (next: boolean): void => {
+    setShowAnalyzer(next);
+    try { localStorage.setItem(ANALYZER_VISIBLE_KEY, next ? 'true' : 'false'); } catch { /* no-op */ }
+  };
 
   const fetchWatchlist = async () => {
     try {
@@ -152,6 +167,30 @@ const PortfolioTab = () => {
 
   return (
     <div className="space-y-6 slide-in">
+      {/* Portfolio Analyzer — Phase 2 Track C */}
+      <div className="glass-effect rounded-xl p-5 shadow-lg">
+        {showAnalyzer ? (
+          <PortfolioAnalyzerSection onHide={() => toggleAnalyzer(false)} />
+        ) : (
+          <button
+            type="button"
+            onClick={() => toggleAnalyzer(true)}
+            className="w-full flex items-center justify-between text-left group"
+          >
+            <div className="flex items-center gap-2">
+              <BarChart3 className="w-5 h-5 text-purple-600" />
+              <div>
+                <h2 className="text-sm font-bold text-gray-900">Portfolio Analyzer</h2>
+                <p className="text-xs text-gray-500">Upload broker CSV → get AI verdicts (GOOD/AVERAGE/BAD · BUY/HOLD/SELL)</p>
+              </div>
+            </div>
+            <span className="text-xs text-purple-600 group-hover:underline flex items-center gap-0.5">
+              Show <ChevronDown className="w-3.5 h-3.5" />
+            </span>
+          </button>
+        )}
+      </div>
+
       <div className="text-center mb-6">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Watchlist + AI Monitor</h1>
         <p className="text-gray-600">Add stocks you want to track. AI analyzes them on demand.</p>
