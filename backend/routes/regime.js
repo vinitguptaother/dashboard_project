@@ -39,4 +39,36 @@ router.post('/refresh', async (req, res) => {
   }
 });
 
+// ─── Phase 5: HMM endpoints ─────────────────────────────────────────────
+// GET /api/regime/hmm — HMM-only classification (read-only, doesn't write MarketRegime)
+router.get('/hmm', async (_req, res) => {
+  try {
+    const data = await regimeService.classifyWithHMM();
+    res.json({ status: 'success', data });
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+// POST /api/regime/hmm/fit — force re-fit (weekly cron normally handles this)
+router.post('/hmm/fit', async (req, res) => {
+  try {
+    const hmm = require('../services/hmmRegimeService');
+    const result = await hmm.fitModel({ days: req.body?.days || 1260 });
+    res.json({ status: 'success', data: result });
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+// GET /api/regime/compare-classifiers — rule vs HMM side-by-side
+router.get('/compare-classifiers', async (_req, res) => {
+  try {
+    const data = await regimeService.compareClassifiers();
+    res.json({ status: 'success', data });
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
 module.exports = router;

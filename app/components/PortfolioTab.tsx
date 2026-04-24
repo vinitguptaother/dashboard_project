@@ -7,6 +7,7 @@ import {
   Clock, ShieldCheck, BarChart3, ChevronDown, ChevronUp
 } from 'lucide-react';
 import PortfolioAnalyzerSection from './PortfolioAnalyzerSection';
+import BacktestPanel from './BacktestPanel';
 
 const BACKEND_URL = 'http://localhost:5002';
 const ANALYZER_VISIBLE_KEY = 'portfolio-analyzer-visible';
@@ -190,6 +191,9 @@ const PortfolioTab = () => {
           </button>
         )}
       </div>
+
+      {/* Backtester — Phase 5 */}
+      <BacktestPanel />
 
       <div className="text-center mb-6">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Watchlist + AI Monitor</h1>

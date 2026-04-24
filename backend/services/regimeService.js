@@ -178,4 +178,75 @@ async function getHistory(limit = 50) {
   return MarketRegime.find({}).sort({ computedAt: -1 }).limit(limit).lean();
 }
 
-module.exports = { classifyCurrent, computeAndStore, getCurrent, getHistory };
+/**
+ * Phase 5 — HMM-based regime classification.
+ *
+ * Returns a doc shaped similarly to classifyCurrent() so callers can swap
+ * based on RiskSettings.regimeClassifier without schema surprises. This
+ * method does NOT write to MarketRegime — it's advisory unless the user
+ * opts into 'hmm' mode.
+ */
+async function classifyWithHMM() {
+  const hmm = require('./hmmRegimeService');
+  const out = await hmm.classifyCurrent();
+  // Map HMM state ('trending'|'choppy'|'risk-off') to the existing enum values
+  // expected by downstream validator / strategies. 'trending' defaults to
+  // 'trending-bull' here; the rule-based classifier does the bear separation
+  // via FII sign — HMM's 3-state model does not distinguish bull/bear so we
+  // pick bull as the common default (the Validator can cross-check sign if
+  // strict bear detection is needed).
+  const regimeMap = {
+    'trending': 'trending-bull',
+    'choppy': 'choppy',
+    'risk-off': 'risk-off',
+  };
+  const regime = regimeMap[out.state] || 'unknown';
+  return {
+    regime,
+    confidence: out.confidence,
+    reason: `HMM (${out.method}) state="${out.state}" · conf=${out.confidence.toFixed(2)}`,
+    inputs: {
+      niftyLevel: 0,
+      nifty20EMA: 0,
+      nifty50EMA: 0,
+      nifty200EMA: 0,
+      niftyVs50PctTrend: 0,
+      vix: out.observedToday?.vix || 0,
+      vixDelta: 0,
+      fiiNetCr: 0,
+      diiNetCr: 0,
+      breadthRatio: 0,
+    },
+    hmm: out,
+    computedAt: new Date(),
+  };
+}
+
+/**
+ * Compare the rule-based and HMM classifiers side-by-side.
+ */
+async function compareClassifiers() {
+  const [ruleRes, hmmRes] = await Promise.allSettled([
+    classifyCurrent(),
+    classifyWithHMM(),
+  ]);
+  return {
+    rule: ruleRes.status === 'fulfilled' ? ruleRes.value : { error: ruleRes.reason?.message || String(ruleRes.reason) },
+    hmm: hmmRes.status === 'fulfilled' ? hmmRes.value : { error: hmmRes.reason?.message || String(hmmRes.reason) },
+    agreement: (
+      ruleRes.status === 'fulfilled' && hmmRes.status === 'fulfilled'
+        ? (ruleRes.value.regime === hmmRes.value.regime)
+        : null
+    ),
+    at: new Date(),
+  };
+}
+
+module.exports = {
+  classifyCurrent,
+  computeAndStore,
+  getCurrent,
+  getHistory,
+  classifyWithHMM,
+  compareClassifiers,
+};

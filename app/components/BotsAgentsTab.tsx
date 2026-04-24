@@ -14,7 +14,8 @@
 
 import BotOpsPanel from './BotOpsPanel';
 import ChiefAnalystChat from './ChiefAnalystChat';
-import { Bot, Sparkles, AlertTriangle, Clock, Zap, TrendingUp } from 'lucide-react';
+import BacktestPanel from './BacktestPanel';
+import { Bot, Sparkles, AlertTriangle, Clock, Zap, TrendingUp, BarChart3 } from 'lucide-react';
 
 export default function BotsAgentsTab() {
   return (
@@ -42,6 +43,16 @@ export default function BotsAgentsTab() {
           <span className="text-xs text-gray-500">rule-based · paper mode · auto-run</span>
         </div>
         <BotOpsPanel />
+      </section>
+
+      {/* Section 1b — Backtester (Phase 5) */}
+      <section>
+        <div className="flex items-center gap-2 mb-3 px-2">
+          <BarChart3 className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Strategy Backtester</h2>
+          <span className="text-xs text-gray-500">Phase 5 · regime-aware · realism-on · free</span>
+        </div>
+        <BacktestPanel />
       </section>
 
       {/* Chief Analyst Chat — always accessible */}

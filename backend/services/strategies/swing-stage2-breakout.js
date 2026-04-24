@@ -92,7 +92,29 @@ module.exports = {
   evaluate,
 };
 
-module.exports.backtest = async (/* { symbol, fromDate, toDate } */) => {
-  // Phase 3 stub. Wired in Phase 5 (Full Backtester).
-  return { runs: 0, winRate: null, avgReturn: null, pendingPhase5: true };
+/**
+ * Phase 5: real backtest. Delegates to backtestService.runBacktest.
+ * Backward compat: the old stub shape is preserved via `runs/winRate/avgReturn`.
+ */
+module.exports.backtest = async (opts = {}) => {
+  const backtestService = require('../backtestService');
+  const {
+    universe = [opts.symbol].filter(Boolean),
+    fromDate, toDate,
+    initialCapital = 500000, riskPerTradePct = 2, regimeFilter = null,
+  } = opts;
+  if (!fromDate || !toDate || universe.length === 0) {
+    return { runs: 0, winRate: null, avgReturn: null, pendingPhase5: false, error: 'need universe+fromDate+toDate' };
+  }
+  const r = await backtestService.runBacktest({
+    strategyKey: 'swing-stage2-breakout',
+    universe, fromDate, toDate, initialCapital, riskPerTradePct, regimeFilter,
+  });
+  return {
+    runs: r.totalTrades,
+    winRate: r.winRate,
+    avgReturn: r.avgReturnPct,
+    pendingPhase5: false,
+    full: r,
+  };
 };

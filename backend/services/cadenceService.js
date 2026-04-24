@@ -251,6 +251,29 @@ const SEED_TASKS = [
     graceMinutes: 360, category: 'agents',
   },
 
+  // ── Phase 5: Backtester + HMM + Strategy Tuner ─────────────────────────
+  {
+    taskKey: 'hmm-regime-weekly-fit',
+    name: 'HMM regime model weekly fit (Sunday 06:30 IST)',
+    description: 'Re-fits the 3-state Gaussian HMM on the latest 5 years of NIFTY daily returns + VIX. MASTER_PLAN §7 Phase 5.',
+    type: 'system', cadence: 'weekly', schedule: '30 6 * * 0',
+    graceMinutes: 360, category: 'learning',
+  },
+  {
+    taskKey: 'strategy-tuner-weekly',
+    name: 'Strategy Tuner weekly cycle (Saturday 02:00 IST)',
+    description: 'Scans closed trades per strategy for R:R, win-rate, and hold-duration drift. Writes StrategyAdjustment proposals + ActionItems for user approval.',
+    type: 'system', cadence: 'weekly', schedule: '0 2 * * 6',
+    graceMinutes: 360, category: 'learning',
+  },
+  {
+    taskKey: 'backtest-history-cleanup',
+    name: 'Backtest history cleanup (daily 03:15 IST)',
+    description: 'Prunes BacktestJob records older than 90 days + orphaned failed jobs. Keeps Mongo lean.',
+    type: 'system', cadence: 'daily', schedule: '15 3 * * *',
+    graceMinutes: 360, category: 'system',
+  },
+
   // ── User activities (no automation; user is expected to perform them)
   {
     taskKey: 'user-review-journal',

@@ -27,6 +27,8 @@ function _meta(s) {
     segment: s.segment,
     regimeCompatibility: s.regimeCompatibility || [],
     description: s.description || '',
+    // Phase 5: deep-link into the Portfolio tab's Backtest panel with strategy preselected.
+    backtestLink: `/portfolio#backtest?strategy=${encodeURIComponent(s.key)}`,
   };
 }
 

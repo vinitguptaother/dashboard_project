@@ -114,6 +114,17 @@ const riskSettingsSchema = new mongoose.Schema({
     type: Date, default: null,
   },
 
+  // Phase 5 — Regime classifier selection.
+  // 'rule' = existing EMA/VIX/FII heuristic (default, safe).
+  // 'hmm'  = Hidden Markov Model trained on (NIFTY return, VIX).
+  // The Validator reads this flag; switching to 'hmm' routes downstream
+  // strategy compatibility checks through the statistical model.
+  regimeClassifier: {
+    type: String,
+    enum: ['rule', 'hmm'],
+    default: 'rule',
+  },
+
   // BOT_BLUEPRINT #11 — Per-bot manual kill switches. One bot can be killed
   // without halting the others. `all` flag is set by Panic button.
   botKillSwitches: {

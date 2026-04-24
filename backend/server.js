@@ -225,6 +225,8 @@ app.use('/api/portfolio-analyzer', require('./routes/portfolioAnalyzer'));
 app.use('/api/agents', require('./routes/agents'));
 app.use('/api/strategies', require('./routes/strategies'));
 app.use('/api/learning', require('./routes/learningEngine'));
+app.use('/api/backtest', require('./routes/backtest'));
+app.use('/api/strategy-tuner', require('./routes/strategyTuner'));
 
 // Error handling middleware
 app.use(errorHandler);
@@ -925,6 +927,48 @@ function startScheduledTasks() {
     } catch (error) {
       console.error('❌ Meta-Critic cron error:', error.message);
       cadenceService.reportRun('meta-critic-weekly', 'failure', error.message).catch(() => {});
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+  // ─── Phase 5: HMM regime weekly fit (Sunday 06:30 IST) ────────────────────
+  cron.schedule('30 6 * * 0', async () => {
+    try {
+      console.log('📐 HMM regime weekly fit starting…');
+      const hmmRegime = require('./services/hmmRegimeService');
+      const result = await hmmRegime.fitModel({ days: 1260 });
+      console.log(`📐 HMM fit done · method=${result.method} · ${result.observations} obs · ${result.iterations ?? 'n/a'} iters`);
+      cadenceService.reportRun('hmm-regime-weekly-fit', 'success', `method=${result.method}`).catch(() => {});
+    } catch (error) {
+      console.error('❌ HMM regime fit error:', error.message);
+      cadenceService.reportRun('hmm-regime-weekly-fit', 'failure', error.message).catch(() => {});
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+  // ─── Phase 5: Strategy Tuner weekly (Saturday 02:00 IST) ──────────────────
+  cron.schedule('0 2 * * 6', async () => {
+    try {
+      console.log('🎛️  Strategy Tuner weekly cycle starting…');
+      const tuner = require('./services/strategyTunerService');
+      const result = await tuner.runTunerCycle();
+      console.log(`🎛️  Strategy Tuner: ${result.pendingCreated} proposals, ${result.noDrift} on-track, ${result.skipped} skipped`);
+      cadenceService.reportRun('strategy-tuner-weekly', 'success', `pending=${result.pendingCreated} ok=${result.noDrift}`).catch(() => {});
+    } catch (error) {
+      console.error('❌ Strategy Tuner cron error:', error.message);
+      cadenceService.reportRun('strategy-tuner-weekly', 'failure', error.message).catch(() => {});
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+  // ─── Phase 5: Backtest history cleanup (daily 03:15 IST) ──────────────────
+  cron.schedule('15 3 * * *', async () => {
+    try {
+      const BacktestJob = require('./models/BacktestJob');
+      const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      const del = await BacktestJob.deleteMany({ createdAt: { $lt: cutoff } });
+      console.log(`🧹 Backtest cleanup: removed ${del.deletedCount || 0} jobs older than 90d`);
+      cadenceService.reportRun('backtest-history-cleanup', 'success', `deleted=${del.deletedCount || 0}`).catch(() => {});
+    } catch (error) {
+      console.error('❌ Backtest cleanup error:', error.message);
+      cadenceService.reportRun('backtest-history-cleanup', 'failure', error.message).catch(() => {});
     }
   }, { timezone: 'Asia/Kolkata' });
 
